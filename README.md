@@ -1,2 +1,2 @@
-# catenae-core
+# core
 TO-DO
