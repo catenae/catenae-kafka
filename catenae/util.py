@@ -4,10 +4,10 @@
 import sys
 import datetime
 import traceback
+import logging
 
 
 def get_current_timestamp():
-    # return int(time.time() * 1000)
     return int(datetime.datetime.today().timestamp())
 
 class format:
@@ -17,14 +17,14 @@ class format:
     END = '\033[0m'
 
 def print_error(instance, message, fatal=False):
-    sys.stderr.write(format.RED_FG + format.WHITE_BG + format.BOLD \
+    message = format.RED_FG + format.WHITE_BG + format.BOLD \
         + 'Error at ' + instance.__class__.__name__ \
-        + '\nMessage: ' + message + format.END + '\n\n')
+        + '\nMessage: ' + message + format.END + '\n\n'
     if fatal:
+        logging.critical(message)
         raise SystemExit
+    logging.error(message)
 
 def print_exception(instance, message, fatal=False):
-    print_error(instance, message)
     traceback.print_exc()
-    if fatal:
-        raise SystemExit
+    print_error(instance, message, fatal)

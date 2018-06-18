@@ -11,11 +11,10 @@ from confluent_kafka import Producer, Consumer, KafkaError
 import time
 from .electron import Electron
 from . import util
-
-# LinkHelper
 import argparse
 from .connectors.aerospike import AerospikeConnector
 from .connectors.local import LocalConnector
+import logging
 
 
 class LinkQueue(Queue):
@@ -31,10 +30,8 @@ class LinkQueue(Queue):
         super().__init__(maxsize=0)
 
 
-class Link(object):
-
+class Link:
     ########################## LINK EXECUTION MODES ##########################
-
     # Multiple kafka inputs
     MULTIPLE_KAFKA_INPUTS = 'MKI'
 
@@ -46,24 +43,34 @@ class Link(object):
 
     # Custom input
     CUSTOM_INPUT = 'CI'
-
     ##########################################################################
 
-    # def args(self, function):
-    #     def wrapper():
-    #         self._load_args()
-    #         function()
-    #     return wrapper
+    def __init__(self, log_level='INFO'):
+        if log_level == 'NOTSET':
+            log_level = logging.NOTSET
+        elif log_level == 'DEBUG':
+            log_level = logging.DEBUG
+        elif log_level == 'INFO':
+            log_level = logging.INFO
+        elif log_level == 'WARNING':
+            log_level = logging.WARNING
+        elif log_level == 'ERROR':
+            log_level = logging.ERROR
+        elif log_level == 'CRITICAL':
+            log_level = logging.CRITICAL
+        logging.getLogger().setLevel(log_level)
 
-    def _kafka_producer(self):
-        properties = self.common_properties
-        properties.update({
-            'partition.assignment.strategy': 'roundrobin',
-            'queue.buffering.max.ms': '1'
-        })
+    def _output(self, kafka_producer=True):
+        if kafka_producer:
+            properties = self.common_properties
+            properties.update({
+                'partition.assignment.strategy': 'roundrobin',
+                'queue.buffering.max.ms': '1'
+            })
 
-        # Asynchronous Kafka Producer
-        self.producer = Producer(properties)
+            # Asynchronous Kafka Producer
+            self.producer = Producer(properties)
+
         running = True
         while(running):
             queue_item = self.queue.get()
@@ -72,17 +79,15 @@ class Link(object):
             # Kafka Message instances but single Electron instances
             if type(queue_item) is Electron:
                 electrons = [queue_item]
-
-            # Kafka Producer
             else:
                 try:
                     electron = pickle.loads(queue_item.value())
-                except:
+                except Exception:
                     try:
                         electron = \
                             Electron(queue_item.key(),
                                      queue_item.value().decode('utf-8'))
-                    except:
+                    except Exception:
                         util.print_exception(self, 'Unsupported serialization.')
                         continue
 
@@ -90,17 +95,17 @@ class Link(object):
                 electron.previous_topic = electron.topic
                 electron.topic = None
 
-                # The destiny topic will be written if desired in the
-                # transform method
+                # The destiny topic will be overwritten if desired in the
+                # transform method (default, first output topic)
                 try:
                     electrons = self.transform(electron)
-                except Exception as e:
-                    util.print_error(self, "Link error. Exiting...", fatal=True)
+                except Exception:
+                    util.print_error(self, "Exception during the execution of \"transform\". Exiting...", fatal=True)
 
                 if electrons and type(electrons) is not list:
                     electrons = [electrons]
 
-            if not electrons:
+            if not kafka_producer or not electrons:
                 continue
 
             for electron in electrons:
@@ -148,16 +153,10 @@ class Link(object):
         })
 
         consumer = Consumer(properties)
-
-        # Output queue
-        # queue = self.queues[0]
-
         prev_queued_messages = 0
-
         running = True
         while running:
             for i, topic in enumerate(topic_assignments.keys()):
-
                 consumer.unsubscribe()
 
                 # Buffer for the current topic
@@ -168,12 +167,10 @@ class Link(object):
                 elif self.mki_mode == 'parity':
                     subscription = self.input_topics
                 else:
-                    print('Unknown mode')
+                    logging.error('Unknown mode')
                     return
 
                 consumer.subscribe(subscription)
-                # print(len(consumer.assignment()))
-
                 try:
                     start_time = util.get_current_timestamp()
                     assigned_time = topic_assignments[topic]
@@ -183,16 +180,13 @@ class Link(object):
                         message = consumer.poll()
 
                         if not message.key() and not message.value():
-                            print("Poll...")
+                            # logging.debug(f'{self.__class__.__name__ } polling...')
                             if len(subscription) == 1 \
                             or self.mki_mode == 'parity':
                                 continue
                             # New topic / restart if there are more topics or
                             # there aren't assigned partitions
                             break
-
-                        # print(message.key())
-                        # print(message.value())
 
                         if message.error():
                             # End of partition event, not really an error
@@ -206,8 +200,6 @@ class Link(object):
                             elif message.error():
                                 util.print_error(self, message.error())
                         else:
-                            # print(pickle.loads(message.value()).value)
-
                             # The message is added to a local list that will be
                             # dumped to a queue for asynchronous processing
                             message_buffer.append(message)
@@ -234,8 +226,8 @@ class Link(object):
                             # Penalize if only one message was consumed
                             if current_queued_messages > 1 \
                             and current_queued_messages > prev_queued_messages - 2:
-                                print(f"Penalized. NPM: {current_queued_messages}")
-                                time.sleep(10)
+                                logging.info(f"Penalized. NPM: {current_queued_messages}")
+                                time.sleep(3)
                                 break
 
                             # else...
@@ -247,14 +239,12 @@ class Link(object):
                     for message in message_buffer:
                         self.queue.put(message)
 
-                except Exception:
-                    util.print_exception(self, 'Unknown exception.')
+                except Exception as e:
+                    util.print_error(self, "Kafka consumer error. Exiting...")
                     try:
                         consumer.close()
                     except Exception:
-                        pass
-                    raise SystemExit
-
+                        util.print_exception(self, 'Exception when closing the consumer.', fatal=True)
 
     def _get_index_assignment(self, window_size, index, elements_no, base=1.7):
         """
@@ -276,7 +266,21 @@ class Link(object):
         return (index_assignment / aggregated_value) * window_size
 
     def setup(self):
+        # Needed since the setup method can be left blank
         pass
+
+    def custom_input(self):
+        util.print_error(self, "Void \"custom_input\". Exiting...", fatal=True)
+
+    @staticmethod
+    def _thread_target(**kwargs):
+        # TODO check that the logger is working
+        try:
+            target = kwargs['target']
+            kwargs.pop('target')
+            target(**kwargs)
+        except Exception:
+            util.print_error(target, f"Exception during the execution of \"{target.__name__}\". Exiting...", fatal=True)
 
     def start(self, link_mode=None, mki_mode='exp'):
         self.output_topics = []
@@ -302,50 +306,61 @@ class Link(object):
             self.aerospike = None
 
         # Overwritable by a link
-        self.setup()
+        try:
+            self.setup()
+        except Exception:
+            util.print_error(self, "Exception during the execution of \"setup\". Exiting...", fatal=True)
+
+        link_threads = []
 
         # A) OUTPUT
-        output_target = self._kafka_producer  # Default Kafka output
-        output_kwargs = {}
+        # Disable Kafka producer for custom input modes
+        kafka_producer = True
+        if self.link_mode == Link.CUSTOM_OUTPUT \
+        or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUPUT:
+            kafka_producer = False
 
-        # Deprecated, always use transform method
-        # Custom output
-        # if self.link_mode is self.KAFKA_INPUT_CUSTOM_OUTPUT:
-        #    output_target = self.custom_output
-
-        threading.Thread(target=output_target,
-                         kwargs=output_kwargs).start()
+        output_kwargs = {'target': self._output,
+                         'kafka_producer': kafka_producer}
+        link_threads.append(threading.Thread(target=Link._thread_target,
+                                             kwargs=output_kwargs))
 
         # B) INPUT
         input_target = self._kafka_consumer  # Default Kafka input
         input_kwargs = {}
 
         # Custom input
-        if self.link_mode == self.CUSTOM_INPUT:
+        if self.link_mode == Link.CUSTOM_INPUT:
             input_target = self.custom_input
 
         # Multiple Kafka input topics
-        elif self.link_mode == self.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUPUT \
-                or self.link_mode == self.MULTIPLE_KAFKA_INPUTS:
+        elif self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUPUT \
+                or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS:
             # Exponential window assignment
             if self.mki_mode == 'exp':
                 window_size = 900  # in seconds, 15 minutes
 
                 topics_no = len(self.input_topics)
                 topic_assignments = {}
-                print("Input topics time assingments:")
+                logging.info("Input topics time assingments:")
                 for i, topic in enumerate(self.input_topics):
                     topic_assingment = \
                         self._get_index_assignment(window_size, i, topics_no)
                     topic_assignments[topic] = topic_assingment
-                    print(' - ' + topic + ": " + str(topic_assingment) +
+                    logging.info(' - ' + topic + ": " + str(topic_assingment) +
                           " seconds")
                 input_kwargs['topic_assignments'] = topic_assignments
 
-        threading.Thread(target=input_target,
-                         kwargs=input_kwargs).start()
+        input_kwargs['target'] = input_target
+        link_threads.append(threading.Thread(target=Link._thread_target,
+                                             kwargs=input_kwargs))
 
-        print(self.__class__.__name__ + ' link started.')
+        for thread in link_threads:
+            thread.start()
+        logging.info(self.__class__.__name__ + ' link started.')
+
+        # TODO
+        # Watch threads status (link_threads)
 
     @staticmethod
     def in_time(start_time, assigned_time):
@@ -363,7 +378,7 @@ class Link(object):
             elif self.resources_location == 'local':
                 lc = LocalConnector(self.local_resources_path)
                 return lc.get_object(object_name)
-        except:
+        except Exception:
             util.print_exception(self,
                 'Missing resources_location attribute. Exiting...', fatal=True)
 
@@ -376,8 +391,7 @@ class Link(object):
                             dest="input_topics",
                             help='Kafka input topics. Several topics '
                             + 'can be specified separated by commas.',
-                            # Required if the link mode is not of type
-                            # CUSTOM_INPUT
+                            # Required if the link mode is not of type CUSTOM_INPUT
                             required=self.link_mode != Link.CUSTOM_INPUT and \
                                      self.link_mode != Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUPUT)
 
@@ -388,8 +402,7 @@ class Link(object):
                             dest="output_topics",
                             help='Kafka output topics. Several topics '
                             + 'can be specified separated by commas.',
-                            # Required if the link mode is not of type
-                            # CUSTOM_OUTPUT
+                            # Required if the link mode is not of type CUSTOM_OUTPUT
                             required=self.link_mode != Link.CUSTOM_OUTPUT and \
                                      self.link_mode != Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUPUT)
 

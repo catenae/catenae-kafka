@@ -6,7 +6,7 @@ from setuptools import setup
 
 
 setup(name='catenae',
-      version='0.2.1.15-alpha',
+      version='0.2.1.25-alpha',
       description='Easily process unbounded streams of data with Python',
       url='https://github.com/catenae',
       author='Rodrigo Martínez',
