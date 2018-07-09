@@ -71,8 +71,8 @@ class Link:
             # Asynchronous Kafka Producer
             self.producer = Producer(properties)
 
-        self.__threads['output']['running'] = True
-        while self.__threads['output']['running']:
+        self.threads['output']['running'] = True
+        while self.threads['output']['running']:
             queue_item = self.queue.get()
 
             # If a custom input is used, the stored objects are not
@@ -146,16 +146,19 @@ class Link:
 
         # Kafka Consumer
         properties = self.common_properties
+        if not self.consumer_group:
+            self.consumer_group = __class__.__name__
         properties.update({
-            'group.id': self.__class__.__name__,
+            'group.id': self.consumer_group,
             'enable.auto.commit': True,
             'auto.offset.reset': 'smallest'
         })
-
         consumer = Consumer(properties)
+        logging.info(f"Consumer group: {self.consumer_group}")
+
         prev_queued_messages = 0
-        self.__threads['input']['running'] = True
-        while self.__threads['input']['running']:
+        self.threads['input']['running'] = True
+        while self.threads['input']['running']:
             for i, topic in enumerate(topic_assignments.keys()):
                 consumer.unsubscribe()
 
@@ -282,14 +285,15 @@ class Link:
             util.print_exception(target, f"Exception during the execution of \"{target.__name__}\". Exiting...", fatal=True)
 
     def restart_input(self):
-        self.__threads['input']['running'] = False
+        self.threads['input']['running'] = False
         input_kwargs, input_thread = self._get_input_opts()
-        self.__threads['input'] = {'thread': input_thread,
+        self.threads['input'] = {'thread': input_thread,
                                    'kwargs': input_kwargs}
         input_thread.start()
         logging.info(self.__class__.__name__ + '\'s input restarted.')
 
-    def start(self, link_mode=None, mki_mode='exp'):
+    def start(self, link_mode=None, mki_mode='exp', consumer_group=None):
+        self.consumer_group = consumer_group
         self.output_topics = []
         self.producer_options = {}
         self.consumer_options = {}
@@ -325,7 +329,7 @@ class Link:
         input_kwargs, input_thread = self._get_input_opts()
 
         # Start threads
-        self.__threads = {'output': {'thread': output_thread},
+        self.threads = {'output': {'thread': output_thread},
                           'input': {'thread': input_thread,
                                     'kwargs': input_kwargs} }
         output_thread.start()

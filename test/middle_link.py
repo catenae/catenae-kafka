@@ -24,4 +24,4 @@ class MiddleLink(Link):
         return electron
 
 if __name__ == "__main__":
-    MiddleLink().start()
+    MiddleLink().start(consumer_group='custom_group')
