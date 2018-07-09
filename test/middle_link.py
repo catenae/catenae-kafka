@@ -18,6 +18,8 @@ class MiddleLink(Link):
         electron.key = electron.key + '_transformed'
         electron.value = electron.value + '_transformed'
 
+        logging.debug(f'PREVIOUS TOPIC: {electron.previous_topic}')
+
         if random.randint(0,10) == 7:
             self.restart_input()
 

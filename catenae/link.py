@@ -74,11 +74,12 @@ class Link:
         self.threads['output']['running'] = True
         while self.threads['output']['running']:
             queue_item = self.queue.get()
-
-            # If a custom input is used, the stored objects are not
-            # Kafka Message instances but single Electron instances
+            
+            # Custom input
             if type(queue_item) is Electron:
                 electrons = [queue_item]
+
+            # Kafka Input
             else:
                 try:
                     electron = pickle.loads(queue_item.value())
@@ -120,14 +121,12 @@ class Link:
                 # Electrons are serialized with pickle
                 output = pickle.dumps(electron, protocol=4)
 
-                if electron.topic:
-                    output_topic = electron.topic
                 # If the destiny topic is not specified, the first is used
-                else:
-                    output_topic = self.output_topics[0]
+                if not electron.topic:
+                    electron.topic = self.output_topics[0]
 
                 try:
-                    self.producer.produce(topic=output_topic,
+                    self.producer.produce(topic=electron.topic,
                                           key=partition_key,
                                           value=output)
 
@@ -146,8 +145,6 @@ class Link:
 
         # Kafka Consumer
         properties = self.common_properties
-        if not self.consumer_group:
-            self.consumer_group = __class__.__name__
         properties.update({
             'group.id': self.consumer_group,
             'enable.auto.commit': True,
@@ -293,7 +290,10 @@ class Link:
         logging.info(self.__class__.__name__ + '\'s input restarted.')
 
     def start(self, link_mode=None, mki_mode='exp', consumer_group=None):
-        self.consumer_group = consumer_group
+        if not consumer_group:
+            self.consumer_group = self.__class__.__name__
+        else:
+            self.consumer_group = consumer_group
         self.output_topics = []
         self.producer_options = {}
         self.consumer_options = {}
