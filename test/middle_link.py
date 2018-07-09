@@ -3,7 +3,7 @@
 
 from catenae import Link, Electron, util
 import logging
-
+import random
 
 class MiddleLink(Link):
     def setup(self):
@@ -17,6 +17,10 @@ class MiddleLink(Link):
         logging.debug(f'{self.__class__.__name__} -> received key: {electron.key}, value: {electron.value}')
         electron.key = electron.key + '_transformed'
         electron.value = electron.value + '_transformed'
+
+        if random.randint(0,10) == 7:
+            self.restart_input()
+
         return electron
 
 if __name__ == "__main__":

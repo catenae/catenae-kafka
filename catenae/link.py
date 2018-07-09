@@ -71,8 +71,8 @@ class Link:
             # Asynchronous Kafka Producer
             self.producer = Producer(properties)
 
-        running = True
-        while(running):
+        self.__threads['output']['running'] = True
+        while self.__threads['output']['running']:
             queue_item = self.queue.get()
 
             # If a custom input is used, the stored objects are not
@@ -100,7 +100,7 @@ class Link:
                 try:
                     electrons = self.transform(electron)
                 except Exception:
-                    util.print_error(self, "Exception during the execution of \"transform\". Exiting...", fatal=True)
+                    util.print_exception(self, "Exception during the execution of \"transform\". Exiting...", fatal=True)
 
                 if electrons and type(electrons) is not list:
                     electrons = [electrons]
@@ -134,7 +134,7 @@ class Link:
                     # Synchronous Writes
                     self.producer.flush()
                 except Exception:
-                    util.print_error(self, "Kafka producer error. Exiting...", fatal=True)
+                    util.print_exception(self, "Kafka producer error. Exiting...", fatal=True)
 
     def _kafka_consumer(self, topic_assignments=None):
         if self.mki_mode == 'parity':
@@ -154,8 +154,8 @@ class Link:
 
         consumer = Consumer(properties)
         prev_queued_messages = 0
-        running = True
-        while running:
+        self.__threads['input']['running'] = True
+        while self.__threads['input']['running']:
             for i, topic in enumerate(topic_assignments.keys()):
                 consumer.unsubscribe()
 
@@ -240,7 +240,7 @@ class Link:
                         self.queue.put(message)
 
                 except Exception as e:
-                    util.print_error(self, "Kafka consumer error. Exiting...")
+                    util.print_exception(self, "Kafka consumer error. Exiting...")
                     try:
                         consumer.close()
                     except Exception:
@@ -274,13 +274,20 @@ class Link:
 
     @staticmethod
     def _thread_target(**kwargs):
-        # TODO check that the logger is working
         try:
             target = kwargs['target']
             kwargs.pop('target')
             target(**kwargs)
         except Exception:
-            util.print_error(target, f"Exception during the execution of \"{target.__name__}\". Exiting...", fatal=True)
+            util.print_exception(target, f"Exception during the execution of \"{target.__name__}\". Exiting...", fatal=True)
+
+    def restart_input(self):
+        self.__threads['input']['running'] = False
+        input_kwargs, input_thread = self._get_input_opts()
+        self.__threads['input'] = {'thread': input_thread,
+                                   'kwargs': input_kwargs}
+        input_thread.start()
+        logging.info(self.__class__.__name__ + '\'s input restarted.')
 
     def start(self, link_mode=None, mki_mode='exp'):
         self.output_topics = []
@@ -309,58 +316,82 @@ class Link:
         try:
             self.setup()
         except Exception:
-            util.print_error(self, "Exception during the execution of \"setup\". Exiting...", fatal=True)
+            util.print_exception(self, "Exception during the execution of \"setup\". Exiting...", fatal=True)
 
-        link_threads = []
+        # Output
+        output_kwargs, output_thread = self._get_output_opts()
 
-        # A) OUTPUT
-        # Disable Kafka producer for custom input modes
+        # Input
+        input_kwargs, input_thread = self._get_input_opts()
+
+        # Start threads
+        self.__threads = {'output': {'thread': output_thread},
+                          'input': {'thread': input_thread,
+                                    'kwargs': input_kwargs} }
+        output_thread.start()
+        input_thread.start()
+        logging.info(self.__class__.__name__ + ' link started.')
+
+    def _get_output_opts(self):
+        # Disable Kafka producer for custom output modes
         kafka_producer = True
-        if self.link_mode == Link.CUSTOM_OUTPUT \
-        or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUPUT:
+        if self._custom_output():
             kafka_producer = False
 
         output_kwargs = {'target': self._output,
                          'kafka_producer': kafka_producer}
-        link_threads.append(threading.Thread(target=Link._thread_target,
-                                             kwargs=output_kwargs))
+        output_thread = threading.Thread(target=Link._thread_target,
+                                         kwargs=output_kwargs)
+        return output_kwargs, output_thread
 
-        # B) INPUT
+    def _get_input_opts(self):
         input_target = self._kafka_consumer  # Default Kafka input
         input_kwargs = {}
 
         # Custom input
-        if self.link_mode == Link.CUSTOM_INPUT:
+        if self._custom_input():
             input_target = self.custom_input
 
         # Multiple Kafka input topics
-        elif self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUPUT \
-                or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS:
-            # Exponential window assignment
-            if self.mki_mode == 'exp':
-                window_size = 900  # in seconds, 15 minutes
-
-                topics_no = len(self.input_topics)
-                topic_assignments = {}
-                logging.info("Input topics time assingments:")
-                for i, topic in enumerate(self.input_topics):
-                    topic_assingment = \
-                        self._get_index_assignment(window_size, i, topics_no)
-                    topic_assignments[topic] = topic_assingment
-                    logging.info(' - ' + topic + ": " + str(topic_assingment) +
-                          " seconds")
-                input_kwargs['topic_assignments'] = topic_assignments
+        elif self._multiple_kafka_input():
+                # Exponential window assignment
+                if self.mki_mode == 'exp':
+                    input_kwargs['topic_assignments'] = self._get_topic_assignments()
 
         input_kwargs['target'] = input_target
-        link_threads.append(threading.Thread(target=Link._thread_target,
-                                             kwargs=input_kwargs))
+        input_thread = threading.Thread(target=Link._thread_target,
+                                        kwargs=input_kwargs)
+        return input_kwargs, input_thread
 
-        for thread in link_threads:
-            thread.start()
-        logging.info(self.__class__.__name__ + ' link started.')
+    def _custom_output(self):
+        return self.link_mode == Link.CUSTOM_OUTPUT \
+        or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUPUT
 
-        # TODO
-        # Watch threads status (link_threads)
+    def _custom_input(self):
+        return self.link_mode == Link.CUSTOM_INPUT
+
+    def _kafka_input(self):
+        return self._multiple_kafka_input() or not self.link_mode
+
+    def _kafka_output(self):
+        return not self._custom_output()
+
+    def _multiple_kafka_input(self):
+        return self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUPUT \
+        or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS
+
+    def _get_topic_assignments(self):
+        topic_assignments = {}
+        window_size = 900  # in seconds, 15 minutes
+        topics_no = len(self.input_topics)
+        logging.info("Input topics time assingments:")
+        for i, topic in enumerate(self.input_topics):
+            topic_assingment = \
+                self._get_index_assignment(window_size, i, topics_no)
+            topic_assignments[topic] = topic_assingment
+            logging.info(' - ' + topic + ": " + str(topic_assingment) +
+                  " seconds")
+        return topic_assignments
 
     @staticmethod
     def in_time(start_time, assigned_time):
@@ -392,9 +423,7 @@ class Link:
                             help='Kafka input topics. Several topics '
                             + 'can be specified separated by commas.',
                             # Required if the link mode is not of type CUSTOM_INPUT
-                            required=self.link_mode != Link.CUSTOM_INPUT and \
-                                     self.link_mode != Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUPUT)
-
+                            required=not self._custom_input)
         # Output topic
         parser.add_argument('-o',
                             '--output-topics',
@@ -403,8 +432,7 @@ class Link:
                             help='Kafka output topics. Several topics '
                             + 'can be specified separated by commas.',
                             # Required if the link mode is not of type CUSTOM_OUTPUT
-                            required=self.link_mode != Link.CUSTOM_OUTPUT and \
-                                     self.link_mode != Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUPUT)
+                            required=not self._custom_output)
 
         # Kafka bootstrap server
         parser.add_argument('-b',
