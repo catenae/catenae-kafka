@@ -74,7 +74,7 @@ class Link:
         self.threads['output']['running'] = True
         while self.threads['output']['running']:
             queue_item = self.queue.get()
-            
+
             # Custom input
             if type(queue_item) is Electron:
                 electrons = [queue_item]
@@ -136,6 +136,10 @@ class Link:
                     util.print_exception(self, "Kafka producer error. Exiting...", fatal=True)
 
     def _kafka_consumer(self, topic_assignments=None):
+        # Since the list
+        if not self.input_topics:
+            return
+
         if self.mki_mode == 'parity':
             topic_assignments = {-1: -1}
         # If topics are not specified, the first is used
@@ -151,10 +155,9 @@ class Link:
             'auto.offset.reset': 'smallest'
         })
         consumer = Consumer(properties)
-        logging.info(f"Consumer group: {self.consumer_group}")
+        logging.info(f'{self.__class__.__name__}: consumer group - {self.consumer_group}')
 
         prev_queued_messages = 0
-        self.threads['input']['running'] = True
         while self.threads['input']['running']:
             for i, topic in enumerate(topic_assignments.keys()):
                 consumer.unsubscribe()
@@ -165,18 +168,19 @@ class Link:
                 if self.mki_mode == 'exp':
                     subscription = [topic]
                 elif self.mki_mode == 'parity':
-                    subscription = self.input_topics
+                    subscription = list(self.input_topics)
                 else:
-                    logging.error('Unknown mode')
-                    return
+                    util.print_error(self, 'Unknown priority mode', fatal=True)
 
                 consumer.subscribe(subscription)
+                logging.info(f'{self.__class__.__name__} listening on: {subscription}')
+
                 try:
                     start_time = util.get_current_timestamp()
                     assigned_time = topic_assignments[topic]
 
-                    while assigned_time == -1 or \
-                    Link.in_time(start_time, assigned_time):
+                    while self.threads['input']['running'] \
+                    and (assigned_time == -1 or Link.in_time(start_time, assigned_time)):
                         message = consumer.poll()
 
                         if not message.key() and not message.value():
@@ -246,6 +250,9 @@ class Link:
                     except Exception:
                         util.print_exception(self, 'Exception when closing the consumer.', fatal=True)
 
+                # print(self.threads['input']['running'])
+        logging.info(f'{self.__class__.__name__}: stopped input.')
+
     def _get_index_assignment(self, window_size, index, elements_no, base=1.7):
         """
         window_size implies a full cycle consuming all the queues with
@@ -281,15 +288,33 @@ class Link:
         except Exception:
             util.print_exception(target, f"Exception during the execution of \"{target.__name__}\". Exiting...", fatal=True)
 
-    def restart_input(self):
-        self.threads['input']['running'] = False
-        input_kwargs, input_thread = self._get_input_opts()
-        self.threads['input'] = {'thread': input_thread,
-                                   'kwargs': input_kwargs}
-        input_thread.start()
-        logging.info(self.__class__.__name__ + '\'s input restarted.')
+    def add_input(self, input):
+        if self._kafka_input():
+            if input not in self.input_topics:
+                self.threads['input']['running'] = False
+                self.threads['input']['thread'].join()
+                self.input_topics.append(input)
+                self._reset_input()
+                logging.info(self.__class__.__name__ + ' added an input.')
 
-    def start(self, link_mode=None, mki_mode='exp', consumer_group=None):
+    def remove_input(self, input):
+        if self._kafka_input():
+            if input in self.input_topics:
+                self.threads['input']['running'] = False
+                self.threads['input']['thread'].join()
+                self.input_topics.remove(input)
+                self._reset_input()
+                logging.info(self.__class__.__name__ + ' removed an input.')
+
+    def _reset_input(self):
+        # TODO support for exp mode (void topic_assignments)
+        input_kwargs, input_thread = self._get_input_thread()
+        self.threads['input'] = {'thread': input_thread,
+                                 'kwargs': input_kwargs,
+                                 'running': True}
+        input_thread.start()
+
+    def start(self, link_mode=None, mki_mode='parity', consumer_group=None):
         if not consumer_group:
             self.consumer_group = self.__class__.__name__
         else:
@@ -326,12 +351,14 @@ class Link:
         output_kwargs, output_thread = self._get_output_opts()
 
         # Input
-        input_kwargs, input_thread = self._get_input_opts()
+        input_kwargs, input_thread = self._get_input_thread()
 
         # Start threads
-        self.threads = {'output': {'thread': output_thread},
-                          'input': {'thread': input_thread,
-                                    'kwargs': input_kwargs} }
+        self.threads = {'output': {'thread': output_thread,
+                                   'running': True},
+                        'input': {'thread': input_thread,
+                                  'kwargs': input_kwargs,
+                                  'running': True} }
         output_thread.start()
         input_thread.start()
         logging.info(self.__class__.__name__ + ' link started.')
@@ -348,7 +375,7 @@ class Link:
                                          kwargs=output_kwargs)
         return output_kwargs, output_thread
 
-    def _get_input_opts(self):
+    def _get_input_thread(self):
         input_target = self._kafka_consumer  # Default Kafka input
         input_kwargs = {}
 

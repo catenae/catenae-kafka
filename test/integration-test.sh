@@ -6,6 +6,7 @@ docker run -d --net=host  \
 --name kafka-catenae \
 catenae/kafka
 
-python source_link.py -o queue1 -b 127.0.0.1:9092 &
-python middle_link.py -i queue1 -o queue2 -b 127.0.0.1:9092 &
-python leaf_link.py -i queue2 -b 127.0.0.1:9092 &
+python source_link.py -o input1 -b 127.0.0.1:9092 > /dev/null &
+python source_link.py -o input2 -b 127.0.0.1:9092 > /dev/null &
+python leaf_link.py -i input3 -b 127.0.0.1:9092 > /dev/null &
+python middle_link.py -i input1 -o input3 -b 127.0.0.1:9092

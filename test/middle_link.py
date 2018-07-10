@@ -17,11 +17,15 @@ class MiddleLink(Link):
         logging.debug(f'{self.__class__.__name__} -> received key: {electron.key}, value: {electron.value}')
         electron.key = electron.key + '_transformed'
         electron.value = electron.value + '_transformed'
-
-        logging.debug(f'PREVIOUS TOPIC: {electron.previous_topic}')
+        logging.debug(f'{self.__class__.__name__} -> previous topic: {electron.previous_topic}')
 
         if random.randint(0,10) == 7:
-            self.restart_input()
+            if "input2" not in self.input_topics:
+                self.add_input("input2")
+                logging.debug(f'{self.__class__.__name__} -> {self.input_topics}')
+            else:
+                self.remove_input("input2")
+                logging.debug(f'{self.__class__.__name__} -> {self.input_topics}')
 
         return electron
 
