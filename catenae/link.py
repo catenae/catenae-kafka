@@ -23,10 +23,8 @@ class LinkQueue(Queue):
                  messages_left_to_commit=None):
         if messages_left_to_commit is None:
             messages_left_to_commit = minimum_messages_to_commit
-
         self.minimum_messages_to_commit = minimum_messages_to_commit
         self.messages_left_to_commit = messages_left_to_commit
-
         super().__init__(maxsize=0)
 
 
@@ -39,7 +37,7 @@ class Link:
     CUSTOM_OUTPUT = 'CO'
 
     # Custom input with multiple kafka inputs
-    MULTIPLE_KAFKA_INPUTS_CUSTOM_OUPUT = 'MKICO'
+    MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT = 'MKICO'
 
     # Custom input
     CUSTOM_INPUT = 'CI'
@@ -59,6 +57,7 @@ class Link:
         elif log_level == 'CRITICAL':
             log_level = logging.CRITICAL
         logging.getLogger().setLevel(log_level)
+        self._load_args()
 
     def _output(self, kafka_producer=True):
         if kafka_producer:
@@ -123,6 +122,9 @@ class Link:
 
                 # If the destiny topic is not specified, the first is used
                 if not electron.topic:
+                    if not self.output_topics:
+                        util.print_error(self, "Electron / default output topic unset. Exiting...", fatal=True)
+
                     electron.topic = self.output_topics[0]
 
                 try:
@@ -289,22 +291,22 @@ class Link:
             util.print_exception(target, f"Exception during the execution of \"{target.__name__}\". Exiting...", fatal=True)
 
     def add_input(self, input):
-        if self._kafka_input():
-            if input not in self.input_topics:
-                self.threads['input']['running'] = False
-                self.threads['input']['thread'].join()
-                self.input_topics.append(input)
-                self._reset_input()
-                logging.info(self.__class__.__name__ + ' added an input.')
+        # if self._kafka_input():
+        if input not in self.input_topics:
+            self.threads['input']['running'] = False
+            self.threads['input']['thread'].join()
+            self.input_topics.append(input)
+            self._reset_input()
+            logging.info(self.__class__.__name__ + ' added an input.')
 
     def remove_input(self, input):
-        if self._kafka_input():
-            if input in self.input_topics:
-                self.threads['input']['running'] = False
-                self.threads['input']['thread'].join()
-                self.input_topics.remove(input)
-                self._reset_input()
-                logging.info(self.__class__.__name__ + ' removed an input.')
+        # if self._kafka_input():
+        if input in self.input_topics:
+            self.threads['input']['running'] = False
+            self.threads['input']['thread'].join()
+            self.input_topics.remove(input)
+            self._reset_input()
+            logging.info(self.__class__.__name__ + ' removed an input.')
 
     def _reset_input(self):
         # TODO support for exp mode (void topic_assignments)
@@ -319,14 +321,9 @@ class Link:
             self.consumer_group = self.__class__.__name__
         else:
             self.consumer_group = consumer_group
-        self.output_topics = []
-        self.producer_options = {}
-        self.consumer_options = {}
         self.queue = LinkQueue()
-
         self.mki_mode = mki_mode
         self.link_mode = link_mode
-        self._load_args()
 
         self.common_properties = {
             'bootstrap.servers': self.kafka_bootstrap_server,
@@ -396,19 +393,20 @@ class Link:
 
     def _custom_output(self):
         return self.link_mode == Link.CUSTOM_OUTPUT \
-        or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUPUT
+        or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT
 
     def _custom_input(self):
         return self.link_mode == Link.CUSTOM_INPUT
 
     def _kafka_input(self):
-        return self._multiple_kafka_input() or not self.link_mode
+        return self._multiple_kafka_input() \
+        or self.link_mode == Link.CUSTOM_OUTPUT
 
     def _kafka_output(self):
         return not self._custom_output()
 
     def _multiple_kafka_input(self):
-        return self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUPUT \
+        return self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT \
         or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS
 
     def _get_topic_assignments(self):
@@ -453,8 +451,7 @@ class Link:
                             dest="input_topics",
                             help='Kafka input topics. Several topics '
                             + 'can be specified separated by commas.',
-                            # Required if the link mode is not of type CUSTOM_INPUT
-                            required=not self._custom_input)
+                            required=False)
         # Output topic
         parser.add_argument('-o',
                             '--output-topics',
@@ -462,8 +459,7 @@ class Link:
                             dest="output_topics",
                             help='Kafka output topics. Several topics '
                             + 'can be specified separated by commas.',
-                            # Required if the link mode is not of type CUSTOM_OUTPUT
-                            required=not self._custom_output)
+                            required=False)
 
         # Kafka bootstrap server
         parser.add_argument('-b',

@@ -22,10 +22,10 @@ class MiddleLink(Link):
         if random.randint(0,10) == 7:
             if "input2" not in self.input_topics:
                 self.add_input("input2")
-                logging.debug(f'{self.__class__.__name__} -> {self.input_topics}')
+                logging.debug(f'{self.__class__.__name__} -> INPUT CHANGED {self.input_topics}')
             else:
                 self.remove_input("input2")
-                logging.debug(f'{self.__class__.__name__} -> {self.input_topics}')
+                logging.debug(f'{self.__class__.__name__} -> INPUT CHANGED {self.input_topics}')
 
         return electron
 
