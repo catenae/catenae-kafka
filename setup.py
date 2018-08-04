@@ -3,10 +3,10 @@
 
 from setuptools import find_packages
 from setuptools import setup
-
+import catenae
 
 setup(name='catenae',
-      version='0.2.1.35-alpha',
+      version=catenae.__version__,
       description='Easily process unbounded streams of data with Python',
       url='https://github.com/catenae',
       author='Rodrigo Martínez',

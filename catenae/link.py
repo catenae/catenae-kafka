@@ -19,13 +19,13 @@ import logging
 
 class LinkQueue(Queue):
     def __init__(self,
-                 minimum_messages_to_commit=1,
-                 messages_left_to_commit=None):
-        if messages_left_to_commit is None:
-            messages_left_to_commit = minimum_messages_to_commit
-        self.minimum_messages_to_commit = minimum_messages_to_commit
-        self.messages_left_to_commit = messages_left_to_commit
-        super().__init__(maxsize=0)
+                 minimum_messages=1,
+                 messages_left=None):
+        if messages_left is None:
+            messages_left = minimum_messages
+        self.minimum_messages = minimum_messages
+        self.messages_left = messages_left
+        super().__init__(maxsize=10)
 
 
 class Link:
@@ -57,6 +57,7 @@ class Link:
         elif log_level == 'CRITICAL':
             log_level = logging.CRITICAL
         logging.getLogger().setLevel(log_level)
+        self.lock = threading.RLock()
         self._load_args()
 
     def _output(self, kafka_producer=True):
@@ -132,14 +133,21 @@ class Link:
                                           key=partition_key,
                                           value=output)
 
-                    # Synchronous Writes
-                    self.producer.flush()
+                    # Synchronous writes
+                    if not self.async:
+                        self.producer.flush(timeout=-1)
+
                 except Exception:
                     util.print_exception(self, "Kafka producer error. Exiting...", fatal=True)
+
+
+    def _break_consumer_loop(self):
+        return len(subscription) > 1 and self.mki_mode != 'parity'
 
     def _kafka_consumer(self, topic_assignments=None):
         # Since the list
         if not self.input_topics:
+            logging.info(f"{self.__class__.__name__}: stopped input. No input topics.")
             return
 
         if self.mki_mode == 'parity':
@@ -153,13 +161,21 @@ class Link:
         properties = self.common_properties
         properties.update({
             'group.id': self.consumer_group,
-            'enable.auto.commit': True,
             'auto.offset.reset': 'smallest'
         })
+
+        # Asynchronous mode (default)
+        if self.async:
+            properties.update({
+                'enable.auto.commit': True,
+                'auto.commit.interval.ms': 5000
+            })
+
         consumer = Consumer(properties)
         logging.info(f'{self.__class__.__name__}: consumer group - {self.consumer_group}')
 
         prev_queued_messages = 0
+        self.threads['input']['running'] = True
         while self.threads['input']['running']:
             for i, topic in enumerate(topic_assignments.keys()):
                 consumer.unsubscribe()
@@ -186,9 +202,7 @@ class Link:
                         message = consumer.poll()
 
                         if not message.key() and not message.value():
-                            # logging.debug(f'{self.__class__.__name__ } polling...')
-                            if len(subscription) == 1 \
-                            or self.mki_mode == 'parity':
+                            if not self._break_consumer_loop:
                                 continue
                             # New topic / restart if there are more topics or
                             # there aren't assigned partitions
@@ -198,48 +212,53 @@ class Link:
                             # End of partition event, not really an error
                             if message.error().code() == \
                             KafkaError._PARTITION_EOF:
-                                if len(subscription) == 1 \
-                                or self.mki_mode == 'parity':
+                                if not self._break_consumer_loop:
                                     continue
                                 break
 
                             elif message.error():
-                                util.print_error(self, message.error())
+                                util.print_error(self, str(message.error()))
                         else:
+                            # Synchronous commit
+                            if not self.async:
+                                self.queue.put(message)
+                                consumer.commit(async=False)
+                                continue
+
+                            # Asynchronous
+                            if len(subscription) == 1 or self.mki_mode == 'parity':
+                                self.queue.put(message)
+                                continue
+
+                            # Asynchronous (with penalizations support for
+                            # multiple topics)
+
                             # The message is added to a local list that will be
                             # dumped to a queue for asynchronous processing
                             message_buffer.append(message)
                             current_queued_messages = len(message_buffer)
 
-                            self.queue.messages_left_to_commit = \
-                                self.queue.messages_left_to_commit - 1
+                            self.queue.messages_left = \
+                                self.queue.messages_left - 1
 
                             # If there is only one message left, the offset is
                             # committed
-                            if self.queue.messages_left_to_commit < 1:
+                            if self.queue.messages_left < 1:
                                 for message in message_buffer:
                                     self.queue.put(message)
                                 message_buffer = []
 
-                                self.queue.messages_left_to_commit = \
-                                    self.queue.minimum_messages_to_commit
-
-                                # Synchronous commit
-                                # Only with a reasonable minimum value of
-                                # minimum_messages_to_commit
-                                # consumer.commit(async=False)
+                                self.queue.messages_left = \
+                                    self.queue.minimum_messages
 
                             # Penalize if only one message was consumed
-                            if current_queued_messages > 1 \
+                            if not self._break_consumer_loop \
+                            and current_queued_messages > 1 \
                             and current_queued_messages > prev_queued_messages - 2:
-                                logging.info(f"Penalized. NPM: {current_queued_messages}")
-                                time.sleep(3)
+                                logging.info(f"Penalized topic: {topic}")
                                 break
 
-                            # else...
                             prev_queued_messages = current_queued_messages
-                            # Let other consumers retrieve messages
-                            # time.sleep(1)
 
                     # Dump the buffer before changing the subscription
                     for message in message_buffer:
@@ -252,8 +271,7 @@ class Link:
                     except Exception:
                         util.print_exception(self, 'Exception when closing the consumer.', fatal=True)
 
-                # print(self.threads['input']['running'])
-        logging.info(f'{self.__class__.__name__}: stopped input.')
+        logging.info(f"{self.__class__.__name__}: stopped input.")
 
     def _get_index_assignment(self, window_size, index, elements_no, base=1.7):
         """
@@ -290,40 +308,52 @@ class Link:
         except Exception:
             util.print_exception(target, f"Exception during the execution of \"{target.__name__}\". Exiting...", fatal=True)
 
-    def add_input(self, input):
-        # if self._kafka_input():
-        if input not in self.input_topics:
-            self.threads['input']['running'] = False
-            self.threads['input']['thread'].join()
-            self.input_topics.append(input)
-            self._reset_input()
-            logging.info(self.__class__.__name__ + ' added an input.')
+    def add_input_topic(self, input_topic):
+        pass
+        # if input_topic not in self.input_topics:
+        #     self.input_topics.append(input_topic)
+        #     self._update_input_topic()
 
-    def remove_input(self, input):
-        # if self._kafka_input():
-        if input in self.input_topics:
-            self.threads['input']['running'] = False
-            self.threads['input']['thread'].join()
-            self.input_topics.remove(input)
-            self._reset_input()
-            logging.info(self.__class__.__name__ + ' removed an input.')
+    def remove_input_topic(self, input_topic):
+        pass
+        # if input_topic in self.input_topics:
+        #     self.input_topics.remove(input_topic)
+        #     self._update_input_topic()
 
-    def _reset_input(self):
-        # TODO support for exp mode (void topic_assignments)
-        input_kwargs, input_thread = self._get_input_thread()
-        self.threads['input'] = {'thread': input_thread,
-                                 'kwargs': input_kwargs,
-                                 'running': True}
-        input_thread.start()
+    # def _update_input_topic(self):
+    #     # TODO support for exp mode (void topic_assignments)
+    #     self.threads['input']['running'] = False
+    #     self.threads['input']['thread'].join()
+    #     self.threads['input']['running'] = True
+    #     input_kwargs, input_thread = self._get_input_thread()
+    #     self.threads['input']['thread'] = input_thread
+    #     self.threads['input']['kwargs'] = input_kwargs
+    #     self.threads['input']['thread'].start()
+    #     logging.info(self.__class__.__name__ + ' updated the input.')
 
-    def start(self, link_mode=None, mki_mode='parity', consumer_group=None):
+    def start(self,
+              link_mode=None,
+              mki_mode='parity',
+              consumer_group=None,
+              async=True,
+              sync=None):
+        self.link_mode = link_mode
+        self.mki_mode = mki_mode
         if not consumer_group:
             self.consumer_group = self.__class__.__name__
         else:
             self.consumer_group = consumer_group
+
+        self.async = async
+        if sync:
+            self.async = not sync
+
+        if self.async:
+            logging.info(self.__class__.__name__ + ' execution mode: asynchronous.')
+        else:
+            logging.info(self.__class__.__name__ + ' execution mode: synchronous.')
+
         self.queue = LinkQueue()
-        self.mki_mode = mki_mode
-        self.link_mode = link_mode
 
         self.common_properties = {
             'bootstrap.servers': self.kafka_bootstrap_server,
@@ -363,7 +393,7 @@ class Link:
     def _get_output_opts(self):
         # Disable Kafka producer for custom output modes
         kafka_producer = True
-        if self._custom_output():
+        if self._is_custom_output():
             kafka_producer = False
 
         output_kwargs = {'target': self._output,
@@ -377,35 +407,36 @@ class Link:
         input_kwargs = {}
 
         # Custom input
-        if self._custom_input():
+        if self._is_custom_input():
             input_target = self.custom_input
 
         # Multiple Kafka input topics
-        elif self._multiple_kafka_input():
-                # Exponential window assignment
-                if self.mki_mode == 'exp':
-                    input_kwargs['topic_assignments'] = self._get_topic_assignments()
+        elif self._is_multiple_kafka_input():
+            # Exponential window assignment
+            if self.mki_mode == 'exp':
+                input_kwargs['topic_assignments'] = self._get_topic_assignments()
 
         input_kwargs['target'] = input_target
         input_thread = threading.Thread(target=Link._thread_target,
                                         kwargs=input_kwargs)
+        input_thread.daemon = True
         return input_kwargs, input_thread
 
-    def _custom_output(self):
+    def _is_custom_output(self):
         return self.link_mode == Link.CUSTOM_OUTPUT \
         or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT
 
-    def _custom_input(self):
+    def _is_custom_input(self):
         return self.link_mode == Link.CUSTOM_INPUT
 
-    def _kafka_input(self):
-        return self._multiple_kafka_input() \
+    def _is_kafka_input(self):
+        return self._is_multiple_kafka_input() \
         or self.link_mode == Link.CUSTOM_OUTPUT
 
-    def _kafka_output(self):
-        return not self._custom_output()
+    def _is_kafka_output(self):
+        return not self._is_custom_output()
 
-    def _multiple_kafka_input(self):
+    def _is_multiple_kafka_input(self):
         return self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT \
         or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS
 
@@ -487,7 +518,9 @@ class Link:
                             I.e., "aerospike:namespace:set".',
                             required=False)
 
-        args = parser.parse_args()
+        parsed_args = parser.parse_known_args()
+        args = parsed_args[0]
+        self.args = parsed_args[1]
 
         # If no commas, a list with 1 element is returned
         # Input topics

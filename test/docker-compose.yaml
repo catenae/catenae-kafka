@@ -1,0 +1,35 @@
+version: '3'
+services:
+  kafka:
+    image: catenae/kafka
+    container_name: kafka
+
+  source_link:
+    image: catenae/test
+    command: source_link.py -o input1 -b kafka:9092
+    depends_on:
+      - kafka
+
+  source_link_2:
+    image: catenae/test
+    command: source_link.py -o input2 -b kafka:9092
+    depends_on:
+      - kafka
+
+  middle_link_async:
+    image: catenae/test
+    command: middle_link_async.py -i input1 -o input3 -b kafka:9092
+    depends_on:
+      - kafka
+
+  middle_link_sync:
+    image: catenae/test
+    command: middle_link_sync.py -i input1 -o input3 -b kafka:9092
+    depends_on:
+      - kafka
+
+  leaf_link:
+    image: catenae/test
+    command: leaf_link.py -i input3 -b kafka:9092
+    depends_on:
+      - kafka
