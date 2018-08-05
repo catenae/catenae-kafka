@@ -71,8 +71,8 @@ class Link:
             # Asynchronous Kafka Producer
             self.producer = Producer(properties)
 
-        self.threads['output']['running'] = True
-        while self.threads['output']['running']:
+        running = True
+        while running:
             queue_item = self.queue.get()
 
             # Custom input
@@ -144,18 +144,18 @@ class Link:
     def _break_consumer_loop(self):
         return len(subscription) > 1 and self.mki_mode != 'parity'
 
-    def _kafka_consumer(self, topic_assignments=None):
+    def _kafka_consumer(self):
         # Since the list
         if not self.input_topics:
             logging.info(f"{self.__class__.__name__}: stopped input. No input topics.")
             return
 
         if self.mki_mode == 'parity':
-            topic_assignments = {-1: -1}
+            self.input_topic_assignments = {-1: -1}
         # If topics are not specified, the first is used
-        elif topic_assignments is None:
-            topic_assignments = {}
-            topic_assignments[self.input_topics[0]] = -1
+        elif self.input_topic_assignments is None:
+            self.input_topic_assignments = {}
+            self.input_topic_assignments[self.input_topics[0]] = -1
 
         # Kafka Consumer
         properties = self.common_properties
@@ -173,11 +173,10 @@ class Link:
 
         consumer = Consumer(properties)
         logging.info(f'{self.__class__.__name__}: consumer group - {self.consumer_group}')
-
+        running = True
         prev_queued_messages = 0
-        self.threads['input']['running'] = True
-        while self.threads['input']['running']:
-            for i, topic in enumerate(topic_assignments.keys()):
+        while running:
+            for i, topic in enumerate(self.input_topic_assignments.keys()):
                 consumer.unsubscribe()
 
                 # Buffer for the current topic
@@ -195,10 +194,13 @@ class Link:
 
                 try:
                     start_time = util.get_current_timestamp()
-                    assigned_time = topic_assignments[topic]
+                    assigned_time = self.input_topic_assignments[topic]
+                    while assigned_time == -1 or Link.in_time(start_time, assigned_time):
+                        # Subscribe to the topics again if input topics have changed
+                        if self.changed_input_topics:
+                            self.changed_input_topics = False
+                            break
 
-                    while self.threads['input']['running'] \
-                    and (assigned_time == -1 or Link.in_time(start_time, assigned_time)):
                         message = consumer.poll()
 
                         if not message.key() and not message.value():
@@ -212,9 +214,7 @@ class Link:
                             # End of partition event, not really an error
                             if message.error().code() == \
                             KafkaError._PARTITION_EOF:
-                                if not self._break_consumer_loop:
-                                    continue
-                                break
+                                continue
 
                             elif message.error():
                                 util.print_error(self, str(message.error()))
@@ -309,27 +309,20 @@ class Link:
             util.print_exception(target, f"Exception during the execution of \"{target.__name__}\". Exiting...", fatal=True)
 
     def add_input_topic(self, input_topic):
-        pass
-        # if input_topic not in self.input_topics:
-        #     self.input_topics.append(input_topic)
-        #     self._update_input_topic()
+        if input_topic not in self.input_topics:
+            self.input_topics.append(input_topic)
+            self.changed_input_topics = True
+            if self.mki_mode == 'exp':
+                self._set_input_topic_assignments()
+            logging.info(self.__class__.__name__ + f' added input {input_topic}.')
 
     def remove_input_topic(self, input_topic):
-        pass
-        # if input_topic in self.input_topics:
-        #     self.input_topics.remove(input_topic)
-        #     self._update_input_topic()
-
-    # def _update_input_topic(self):
-    #     # TODO support for exp mode (void topic_assignments)
-    #     self.threads['input']['running'] = False
-    #     self.threads['input']['thread'].join()
-    #     self.threads['input']['running'] = True
-    #     input_kwargs, input_thread = self._get_input_thread()
-    #     self.threads['input']['thread'] = input_thread
-    #     self.threads['input']['kwargs'] = input_kwargs
-    #     self.threads['input']['thread'].start()
-    #     logging.info(self.__class__.__name__ + ' updated the input.')
+        if input_topic in self.input_topics:
+            self.input_topics.remove(input_topic)
+            self.changed_input_topics = True
+            if self.mki_mode == 'exp':
+                self._set_input_topic_assignments()
+            logging.info(self.__class__.__name__ + f' removed input: {input_topic}.')
 
     def start(self,
               link_mode=None,
@@ -368,6 +361,8 @@ class Link:
         except AttributeError:
             self.aerospike = None
 
+        self.changed_input_topics = False
+
         # Overwritable by a link
         try:
             self.setup()
@@ -382,10 +377,9 @@ class Link:
 
         # Start threads
         self.threads = {'output': {'thread': output_thread,
-                                   'running': True},
+                                   'kwargs': output_kwargs},
                         'input': {'thread': input_thread,
-                                  'kwargs': input_kwargs,
-                                  'running': True} }
+                                  'kwargs': input_kwargs}}
         output_thread.start()
         input_thread.start()
         logging.info(self.__class__.__name__ + ' link started.')
@@ -414,7 +408,7 @@ class Link:
         elif self._is_multiple_kafka_input():
             # Exponential window assignment
             if self.mki_mode == 'exp':
-                input_kwargs['topic_assignments'] = self._get_topic_assignments()
+                self._set_input_topic_assignments()
 
         input_kwargs['target'] = input_target
         input_thread = threading.Thread(target=Link._thread_target,
@@ -440,18 +434,17 @@ class Link:
         return self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT \
         or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS
 
-    def _get_topic_assignments(self):
-        topic_assignments = {}
+    def _set_input_topic_assignments(self):
+        self.input_topic_assignments = {}
         window_size = 900  # in seconds, 15 minutes
         topics_no = len(self.input_topics)
         logging.info("Input topics time assingments:")
         for i, topic in enumerate(self.input_topics):
             topic_assingment = \
                 self._get_index_assignment(window_size, i, topics_no)
-            topic_assignments[topic] = topic_assingment
+            self.input_topic_assignments[topic] = topic_assingment
             logging.info(' - ' + topic + ": " + str(topic_assingment) +
                   " seconds")
-        return topic_assignments
 
     @staticmethod
     def in_time(start_time, assigned_time):
