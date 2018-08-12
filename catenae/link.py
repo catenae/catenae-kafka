@@ -25,7 +25,7 @@ class LinkQueue(Queue):
             messages_left = minimum_messages
         self.minimum_messages = minimum_messages
         self.messages_left = messages_left
-        super().__init__(maxsize=10)
+        super().__init__(maxsize=-1)
 
 
 class Link:
@@ -99,9 +99,29 @@ class Link:
                 # The destiny topic will be overwritten if desired in the
                 # transform method (default, first output topic)
                 try:
-                    electrons = self.transform(electron)
+                    transform_result = self.transform(electron)
                 except Exception:
-                    util.print_exception(self, "Exception during the execution of \"transform\". Exiting...", fatal=True)
+                    util.print_exception(self, 'Exception during the execution of "transform". Exiting...',
+                                               fatal=True)
+
+                if type(transform_result) == tuple:
+                    transform_callback = None
+                    transform_callback_args = None
+                    transform_callback_kwargs = None
+
+                    electrons = transform_result[0]
+
+                    # Function to call if asynchronous mode is enabled after
+                    # a message is correctly commited to a Kafka broker
+                    if len(transform_result) > 1:
+                        transform_callback = transform_result[1]
+                        if len(transform_result) > 2:
+                            if type(transform_result[2]) == list:
+                                transform_callback_args = transform_result[2]
+                            elif type(transform_result[2]) == dict:
+                                transform_callback_kwargs = transform_result[2]
+                else:
+                    electrons = transform_result
 
                 if electrons and type(electrons) is not list:
                     electrons = [electrons]
@@ -134,8 +154,18 @@ class Link:
                                           value=output)
 
                     # Synchronous writes
-                    if not self.async:
-                        self.producer.flush(timeout=-1)
+                    if not self.asynchronous:
+                        self.producer.flush()
+
+                        # Optional callback
+                        if transform_callback:
+                            if transform_callback_kwargs:
+                                transform_callback(**transform_callback_kwargs)
+                            elif transform_callback_args:
+                                transform_callback(*transform_callback_args)
+                            else:
+                                transform_callback()
+
 
                 except Exception:
                     util.print_exception(self, "Kafka producer error. Exiting...", fatal=True)
@@ -153,7 +183,7 @@ class Link:
         if self.mki_mode == 'parity':
             self.input_topic_assignments = {-1: -1}
         # If topics are not specified, the first is used
-        elif self.input_topic_assignments is None:
+        elif not self.input_topic_assignments:
             self.input_topic_assignments = {}
             self.input_topic_assignments[self.input_topics[0]] = -1
 
@@ -165,7 +195,7 @@ class Link:
         })
 
         # Asynchronous mode (default)
-        if self.async:
+        if self.asynchronous:
             properties.update({
                 'enable.auto.commit': True,
                 'auto.commit.interval.ms': 5000
@@ -220,9 +250,9 @@ class Link:
                                 util.print_error(self, str(message.error()))
                         else:
                             # Synchronous commit
-                            if not self.async:
+                            if not self.asynchronous:
                                 self.queue.put(message)
-                                consumer.commit(async=False)
+                                consumer.commit(asynchronous=False)
                                 continue
 
                             # Asynchronous
@@ -328,8 +358,8 @@ class Link:
               link_mode=None,
               mki_mode='parity',
               consumer_group=None,
-              async=True,
-              sync=None):
+              asynchronous=True,
+              synchronous=None):
         self.link_mode = link_mode
         self.mki_mode = mki_mode
         if not consumer_group:
@@ -337,11 +367,11 @@ class Link:
         else:
             self.consumer_group = consumer_group
 
-        self.async = async
-        if sync:
-            self.async = not sync
+        self.asynchronous = asynchronous
+        if synchronous:
+            self.asynchronous = not synchronous
 
-        if self.async:
+        if self.asynchronous:
             logging.info(self.__class__.__name__ + ' execution mode: asynchronous.')
         else:
             logging.info(self.__class__.__name__ + ' execution mode: synchronous.')

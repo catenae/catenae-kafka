@@ -19,13 +19,13 @@ class MiddleLinkAsync(Link):
         electron.value = electron.value + '_transformed_async'
         logging.debug(f'{self.__class__.__name__} -> previous topic: {electron.previous_topic}')
 
-        if random.randint(0,10) == 7:
+        if random.randint(0,100) == 84:
             if "input2" not in self.input_topics:
                 self.add_input_topic("input2")
                 logging.debug(f'{self.__class__.__name__} -> INPUT CHANGED {self.input_topics}')
-            else:
-                self.remove_input_topic("input2")
-                logging.debug(f'{self.__class__.__name__} -> INPUT CHANGED {self.input_topics}')
+            # else:
+            #     self.remove_input_topic("input2")
+            #     logging.debug(f'{self.__class__.__name__} -> INPUT CHANGED {self.input_topics}')
 
         return electron
 
