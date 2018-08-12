@@ -60,6 +60,29 @@ class Link:
         self.lock = threading.RLock()
         self._load_args()
 
+    def _execute_queue_item_callback(self,
+                                     queue_item_callback,
+                                     queue_item_callback_kwargs,
+                                     queue_item_callback_args):
+        queue_item_callback_done = False
+        queue_item_callback_attempts = 0
+        while not queue_item_callback_done:
+            if queue_item_callback_attempts == 15:
+                util.print_error(self, 'Cannot commit a message. Exiting...', fatal=True)
+            try:
+                if queue_item_callback_kwargs:
+                    queue_item_callback(**queue_item_callback_kwargs)
+                elif queue_item_callback_args:
+                    queue_item_callback(*queue_item_callback_args)
+                else:
+                    queue_item_callback()
+                queue_item_callback_done = True
+            except Exception as e:
+                logging.error(f'Trying to commit a message ({queue_item_callback_attempts})... Is Kafka rebalancing?')
+                logging.error(str(e))
+                queue_item_callback_attempts += 1
+                time.sleep(2)
+
     def _output(self, kafka_producer=True):
         if kafka_producer:
             properties = self.common_properties
@@ -74,6 +97,19 @@ class Link:
         running = True
         while running:
             queue_item = self.queue.get()
+
+            queue_item_callback = None
+            queue_item_callback_args = None
+            queue_item_callback_kwargs = None
+
+            if type(queue_item) == tuple:
+                queue_item_callback = queue_item[1]
+                if len(queue_item) > 2:
+                    if type(queue_item[2]) == list:
+                        queue_item_callback_args = queue_item[2]
+                    elif type(queue_item[2]) == dict:
+                        queue_item_callback_kwargs = queue_item[2]
+                queue_item = queue_item[0]
 
             # Custom input
             if type(queue_item) is Electron:
@@ -127,6 +163,12 @@ class Link:
                     electrons = [electrons]
 
             if not kafka_producer or not electrons:
+                # Synchronous writes
+                if not self.asynchronous and queue_item_callback:
+                    self._execute_queue_item_callback(
+                        queue_item_callback,
+                        queue_item_callback_kwargs,
+                        queue_item_callback_args)
                 continue
 
             for electron in electrons:
@@ -157,7 +199,14 @@ class Link:
                     if not self.asynchronous:
                         self.producer.flush()
 
-                        # Optional callback
+                        # Intended for message commits
+                        if queue_item_callback:
+                            self._execute_queue_item_callback(
+                                queue_item_callback,
+                                queue_item_callback_kwargs,
+                                queue_item_callback_args)
+
+                        # Optional micromodule callback
                         if transform_callback:
                             if transform_callback_kwargs:
                                 transform_callback(**transform_callback_kwargs)
@@ -165,7 +214,6 @@ class Link:
                                 transform_callback(*transform_callback_args)
                             else:
                                 transform_callback()
-
 
                 except Exception:
                     util.print_exception(self, "Kafka producer error. Exiting...", fatal=True)
@@ -191,7 +239,8 @@ class Link:
         properties = self.common_properties
         properties.update({
             'group.id': self.consumer_group,
-            'auto.offset.reset': 'smallest'
+            'auto.offset.reset': 'smallest',
+            'session.timeout.ms': 30000
         })
 
         # Asynchronous mode (default)
@@ -207,8 +256,6 @@ class Link:
         prev_queued_messages = 0
         while running:
             for i, topic in enumerate(self.input_topic_assignments.keys()):
-                consumer.unsubscribe()
-
                 # Buffer for the current topic
                 message_buffer = []
 
@@ -219,8 +266,10 @@ class Link:
                 else:
                     util.print_error(self, 'Unknown priority mode', fatal=True)
 
+                # Replaces the current subscription
                 consumer.subscribe(subscription)
                 logging.info(f'{self.__class__.__name__} listening on: {subscription}')
+                logging.info(f'{self.__class__.__name__} expect a rebalance process from Kafka...')
 
                 try:
                     start_time = util.get_current_timestamp()
@@ -251,8 +300,9 @@ class Link:
                         else:
                             # Synchronous commit
                             if not self.asynchronous:
-                                self.queue.put(message)
-                                consumer.commit(asynchronous=False)
+                                # consumer.commit(asynchronous=False)
+                                # Commit when the transformation is commited
+                                self.queue.put((message, consumer.commit, {'message': message, 'asynchronous': False}))
                                 continue
 
                             # Asynchronous

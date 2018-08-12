@@ -23,9 +23,9 @@ class MiddleLinkAsync(Link):
             if "input2" not in self.input_topics:
                 self.add_input_topic("input2")
                 logging.debug(f'{self.__class__.__name__} -> INPUT CHANGED {self.input_topics}')
-            # else:
-            #     self.remove_input_topic("input2")
-            #     logging.debug(f'{self.__class__.__name__} -> INPUT CHANGED {self.input_topics}')
+        # elif random.randint(0,100) == 84:
+        #     self.remove_input_topic("input2")
+        #     logging.debug(f'{self.__class__.__name__} -> INPUT CHANGED {self.input_topics}')
 
         return electron
 
