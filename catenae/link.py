@@ -78,8 +78,10 @@ class Link:
                     queue_item_callback()
                 queue_item_callback_done = True
             except Exception as e:
-                logging.error(f'Trying to commit a message ({queue_item_callback_attempts})... Is Kafka rebalancing?')
+                logging.error(f'Trying to commit a message ({queue_item_callback_attempts})...')
                 logging.error(str(e))
+                if 'UNKNOWN_MEMBER_ID' in str(e):
+                    util.print_error(self, 'Cannot commit a message (timeout). Exiting...', fatal=True)
                 queue_item_callback_attempts += 1
                 time.sleep(2)
 
@@ -195,8 +197,13 @@ class Link:
                                           key=partition_key,
                                           value=output)
 
-                    # Synchronous writes
-                    if not self.asynchronous:
+                    # Asynchronous
+                    if self.asynchronous:
+                        self.producer.poll(0)
+
+                    # Synchronous
+                    else:
+                        # Wait for all messages in the Producer queue to be delivered.
                         self.producer.flush()
 
                         # Intended for message commits
