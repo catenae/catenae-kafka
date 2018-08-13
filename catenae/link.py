@@ -100,6 +100,10 @@ class Link:
         while running:
             queue_item = self.queue.get()
 
+            transform_callback = None
+            transform_callback_args = None
+            transform_callback_kwargs = None
+
             queue_item_callback = None
             queue_item_callback_args = None
             queue_item_callback_kwargs = None
@@ -143,10 +147,6 @@ class Link:
                                                fatal=True)
 
                 if type(transform_result) == tuple:
-                    transform_callback = None
-                    transform_callback_args = None
-                    transform_callback_kwargs = None
-
                     electrons = transform_result[0]
 
                     # Function to call if asynchronous mode is enabled after
@@ -212,6 +212,7 @@ class Link:
                                 queue_item_callback,
                                 queue_item_callback_kwargs,
                                 queue_item_callback_args)
+
 
                         # Optional micromodule callback
                         if transform_callback:

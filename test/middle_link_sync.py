@@ -40,18 +40,20 @@ class MiddleLinkSync(Link):
         #     self.remove_input_topic("input2")
         #     logging.debug(f'{self.__class__.__name__} -> INPUT CHANGED {self.input_topics}')
 
-        option = random.randint(0,5)
+        option = random.randint(0,6)
         if option == 0:
-            return electron, callback_noargs
+            return electron
         elif option == 1:
-            return electron, callback_args, ['arg_val1', 'arg_val2']
+            return electron, callback_noargs
         elif option == 2:
-            return electron, callback_args, {'arg1': 'kwarg_val1', 'arg2': 'kwarg_val2'}
+            return electron, callback_args, ['arg_val1', 'arg_val2']
         elif option == 3:
-            return electron, self.instance_callback_noargs
+            return electron, callback_args, {'arg1': 'kwarg_val1', 'arg2': 'kwarg_val2'}
         elif option == 4:
-            return electron, self.instance_callback_args, ['instance_arg_val1', 'instance_arg_val2']
+            return electron, self.instance_callback_noargs
         elif option == 5:
+            return electron, self.instance_callback_args, ['instance_arg_val1', 'instance_arg_val2']
+        elif option == 6:
             return electron, self.instance_callback_args, {'arg1': 'instance_kwarg_val1', 'arg2': 'instance_kwarg_val2'}
 
 
