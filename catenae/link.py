@@ -13,6 +13,7 @@ from .electron import Electron
 from . import util
 import argparse
 from .connectors.aerospike import AerospikeConnector
+from .connectors.mongodb import MongodbConnector
 from .connectors.local import LocalConnector
 import logging
 
@@ -248,7 +249,7 @@ class Link:
         properties.update({
             'group.id': self.consumer_group,
             'auto.offset.reset': 'smallest',
-            'session.timeout.ms': 30000
+            'session.timeout.ms': 300000
         })
 
         # Asynchronous mode (default)
@@ -437,17 +438,26 @@ class Link:
         self.queue = LinkQueue()
 
         self.common_properties = {
-            'bootstrap.servers': self.kafka_bootstrap_server,
+            'bootstrap.servers': self.kafka_host_port,
             'compression.codec': 'snappy',
             'api.version.request': True
         }
+
         try:
             self.aerospike = AerospikeConnector(
-                self.aerospike_bootstrap_host,
-                self.aerospike_bootstrap_port
+                self.aerospike_host,
+                self.aerospike_port
             )
         except AttributeError:
             self.aerospike = None
+
+        try:
+            self.mongodb = MongodbConnector(
+                self.mongodb_host,
+                self.mongodb_port
+            )
+        except AttributeError:
+            self.mongodb = None
 
         self.changed_input_topics = False
 
@@ -558,6 +568,7 @@ class Link:
         parser = argparse.ArgumentParser()
         # Input topic
         parser.add_argument('-i',
+                            '--input',
                             '--input-topic',
                             action="store",
                             dest="input_topics",
@@ -566,6 +577,7 @@ class Link:
                             required=False)
         # Output topic
         parser.add_argument('-o',
+                            '--output',
                             '--output-topics',
                             action="store",
                             dest="output_topics",
@@ -574,24 +586,38 @@ class Link:
                             required=False)
 
         # Kafka bootstrap server
-        parser.add_argument('-b',
+        parser.add_argument('-k',
+                            '--kafka',
+                            '-b',
                             '--kafka-bootstrap-server',
                             action="store",
-                            dest="kafka_bootstrap_server",
+                            dest="kafka_host_port",
                             help='Kafka bootstrap server. \
                             I.e., "localhost:9092".',
                             required=True)
 
         # Aerospike bootstrap server
         parser.add_argument('-a',
+                            '--aerospike',
                             '--aerospike-bootstrap-server',
                             action="store",
-                            dest="aerospike_bootstrap_server",
+                            dest="aerospike_host_port",
                             help='Aerospike bootstrap server. \
                             I.e., "localhost:3000".',
                             required=False)
+
+        # MongoDB server
+        parser.add_argument('-m',
+                            '--mongodb',
+                            action="store",
+                            dest="mongodb_host_port",
+                            help='MongoDB server. \
+                            I.e., "localhost:27017".',
+                            required=False)
+
         # Aerospike path
-        parser.add_argument('-p',
+        parser.add_argument('-l',
+                            '-p',
                             '--resources-location',
                             action="store",
                             dest="resources_location",
@@ -619,14 +645,19 @@ class Link:
         else:
             self.output_topics = None
 
-        self.kafka_bootstrap_server = args.kafka_bootstrap_server
+        self.kafka_host_port = args.kafka_host_port
 
-        if args.aerospike_bootstrap_server is not None:
-            as_bootstrap = args.aerospike_bootstrap_server.split(':')
-            self.aerospike_bootstrap_host = as_bootstrap[0]
-            self.aerospike_bootstrap_port = int(as_bootstrap[1])
+        if args.aerospike_host_port:
+            aerospike_host_port = args.aerospike_host_port.split(':')
+            self.aerospike_host = aerospike_host_port[0]
+            self.aerospike_port = int(aerospike_host_port[1])
 
-        if args.resources_location is not None:
+        if args.mongodb_host_port:
+            mongodb_host_port = args.mongodb_host_port.split(':')
+            self.mongodb_host = mongodb_host_port[0]
+            self.mongodb_port = int(mongodb_host_port[1])
+
+        if args.resources_location:
             resources_location = args.resources_location.split(':')
             self.resources_location = resources_location[0]
 

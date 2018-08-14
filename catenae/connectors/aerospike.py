@@ -3,7 +3,8 @@
 
 import aerospike
 
-class AerospikeConnector(object):
+
+class AerospikeConnector:
 
     def __init__(self, bootstrap_server, bootstrap_port):
         self.config = {'hosts': [(bootstrap_server, bootstrap_port)]}
@@ -11,12 +12,7 @@ class AerospikeConnector(object):
 
     def open_connection(self):
         if self.client is None:
-            try:
-                self.client = aerospike.client(self.config).connect()
-            except Exception as ex:
-                import sys
-                print("error: {0}".format(e), file=sys.stderr)
-                sys.exit(1)
+            self.client = aerospike.client(self.config).connect()
 
     def close_connection(self):
         if self.client is not None:
@@ -24,6 +20,7 @@ class AerospikeConnector(object):
 
     def get_and_close(self, key, as_namespace, as_set):
         """The connection is automatically closed after the call"""
+        self.open_connection()
         try:
             value = self.get(key, as_namespace, as_set)
             self.close_connection()
