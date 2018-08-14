@@ -206,26 +206,26 @@ class Link:
                         # Wait for all messages in the Producer queue to be delivered.
                         self.producer.flush()
 
-                        # Intended for message commits
-                        if queue_item_callback:
-                            self._execute_queue_item_callback(
-                                queue_item_callback,
-                                queue_item_callback_kwargs,
-                                queue_item_callback_args)
-
-
-                        # Optional micromodule callback
-                        if transform_callback:
-                            if transform_callback_kwargs:
-                                transform_callback(**transform_callback_kwargs)
-                            elif transform_callback_args:
-                                transform_callback(*transform_callback_args)
-                            else:
-                                transform_callback()
-
                 except Exception:
                     util.print_exception(self, "Kafka producer error. Exiting...", fatal=True)
 
+            # Synchronous
+            if not self.asynchronous:
+                # Intended for message commits
+                if queue_item_callback:
+                    self._execute_queue_item_callback(
+                        queue_item_callback,
+                        queue_item_callback_kwargs,
+                        queue_item_callback_args)
+
+                # Optional micromodule callback
+                if transform_callback:
+                    if transform_callback_kwargs:
+                        transform_callback(**transform_callback_kwargs)
+                    elif transform_callback_args:
+                        transform_callback(*transform_callback_args)
+                    else:
+                        transform_callback()
 
     def _break_consumer_loop(self):
         return len(subscription) > 1 and self.mki_mode != 'parity'
