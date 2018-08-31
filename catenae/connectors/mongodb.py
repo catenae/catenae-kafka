@@ -37,6 +37,7 @@ class MongodbConnector:
         return True
 
     def create_index(self, attribute, database_name, collection_name, unique=True):
+        self.open_connection()
         collection = self._get_collection(database_name, collection_name)
         collection.create_index(attribute, unique=unique, background=True)
 
