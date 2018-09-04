@@ -58,6 +58,9 @@ class Link:
         elif log_level == 'CRITICAL':
             log_level = logging.CRITICAL
         logging.getLogger().setLevel(log_level)
+        logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s',
+                            datefmt='%Y-%m-%d %H:%M:%S')
+
         self.lock = threading.RLock()
         self._load_args()
 

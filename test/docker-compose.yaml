@@ -2,7 +2,6 @@ version: '3'
 services:
   kafka:
     image: catenae/kafka
-    container_name: kafka
 
   source_link:
     image: catenae/test
