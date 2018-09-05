@@ -251,8 +251,10 @@ class Link:
         properties = self.common_properties
         properties.update({
             'group.id': self.consumer_group,
-            'auto.offset.reset': 'smallest',
-            'session.timeout.ms': 300000
+            'session.timeout.ms': 300000,
+            'default.topic.config': {
+                'auto.offset.reset': 'smallest',
+            }
         })
 
         # Asynchronous mode (default)
