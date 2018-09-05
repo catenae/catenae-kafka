@@ -11,6 +11,7 @@ class SourceLink(Link):
         logging.getLogger().setLevel(logging.DEBUG)
         logging.debug(f'{self.__class__.__name__} -> setup()')
         logging.debug(f'{self.__class__.__name__} -> output_topics: {self.output_topics}')
+        self.message_count = 0
 
     def custom_input(self):
         logging.debug(f'{self.__class__.__name__} -> custom_input()')
@@ -18,9 +19,10 @@ class SourceLink(Link):
             logging.debug(f'{self.__class__.__name__} -> message sent')
             self.queue.put(Electron(
                 'source_key',
-                'source_value',
+                f'source_value_{self.message_count}',
                 topic=self.output_topics[0]
             ))
+            self.message_count += 1
             time.sleep(1)
 
 if __name__ == "__main__":
