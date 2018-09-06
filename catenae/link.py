@@ -251,7 +251,7 @@ class Link:
         properties = self.common_properties
         properties.update({
             'group.id': self.consumer_group,
-            'session.timeout.ms': 300000,
+            'session.timeout.ms': self.consumer_timeout,
             'default.topic.config': {
                 'auto.offset.reset': 'smallest',
             }
@@ -283,7 +283,6 @@ class Link:
                 # Replaces the current subscription
                 consumer.subscribe(subscription)
                 logging.info(f'{self.__class__.__name__} listening on: {subscription}')
-                logging.info(f'{self.__class__.__name__} expect a rebalance process from Kafka...')
 
                 try:
                     start_time = util.get_current_timestamp()
@@ -423,7 +422,8 @@ class Link:
               mki_mode='parity',
               consumer_group=None,
               asynchronous=True,
-              synchronous=None):
+              synchronous=None,
+              consumer_timeout=10000):
         self.link_mode = link_mode
         self.mki_mode = mki_mode
         if not consumer_group:
@@ -439,6 +439,8 @@ class Link:
             logging.info(self.__class__.__name__ + ' execution mode: asynchronous.')
         else:
             logging.info(self.__class__.__name__ + ' execution mode: synchronous.')
+
+        self.consumer_timeout = consumer_timeout
 
         self.queue = LinkQueue()
 

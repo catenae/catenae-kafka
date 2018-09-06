@@ -58,4 +58,6 @@ class MiddleLinkSync(Link):
 
 
 if __name__ == "__main__":
-    MiddleLinkSync().start(consumer_group='custom_group_2', synchronous=True)
+    MiddleLinkSync().start(consumer_group='custom_group_2',
+                           consumer_timeout=10000,
+                           synchronous=True)
