@@ -64,40 +64,64 @@ class Link:
         self.lock = threading.RLock()
         self._load_args()
 
-    def _execute_queue_item_callback(self,
-                                     queue_item_callback,
-                                     queue_item_callback_kwargs,
-                                     queue_item_callback_args):
-        queue_item_callback_done = False
-        queue_item_callback_attempts = 0
-        while not queue_item_callback_done:
-            if queue_item_callback_attempts == 15:
+    def _execute_kafka_consumer_commit_callback(self,
+        kafka_consumer_commit_callback,
+        kafka_consumer_commit_callback_kwargs,
+        kafka_consumer_commit_callback_args):
+
+        kafka_consumer_commit_callback_done = False
+        kafka_consumer_commit_callback_attempts = 0
+        while not kafka_consumer_commit_callback_done:
+            if kafka_consumer_commit_callback_attempts == 15:
                 util.print_error(self, 'Cannot commit a message. Exiting...', fatal=True)
             try:
-                if queue_item_callback_kwargs:
-                    queue_item_callback(**queue_item_callback_kwargs)
-                elif queue_item_callback_args:
-                    queue_item_callback(*queue_item_callback_args)
+                if kafka_consumer_commit_callback_kwargs:
+                    kafka_consumer_commit_callback(**kafka_consumer_commit_callback_kwargs)
+                elif kafka_consumer_commit_callback_args:
+                    kafka_consumer_commit_callback(*kafka_consumer_commit_callback_args)
                 else:
-                    queue_item_callback()
-                queue_item_callback_done = True
+                    kafka_consumer_commit_callback()
+                kafka_consumer_commit_callback_done = True
             except Exception as e:
-                logging.error(f'Trying to commit a message ({queue_item_callback_attempts})...')
+                logging.error(f'Trying to commit a message ({kafka_consumer_commit_callback_attempts})...')
                 logging.error(str(e))
                 if 'UNKNOWN_MEMBER_ID' in str(e):
                     util.print_error(self, 'Cannot commit a message (timeout). Exiting...', fatal=True)
-                queue_item_callback_attempts += 1
+                kafka_consumer_commit_callback_attempts += 1
                 time.sleep(2)
 
     def _output(self, kafka_producer=True):
         if kafka_producer:
+
+            # queue.buffering.max.ms - how long librdkafka will wait for
+            # batch.num.messages to be produced by the application before
+            # sending them to the broker in a produce request.
+
+            # batch.num.messages - the maximum number of messages that will
+            # go in a single produce request to the broker.
+
+            # retries - the client resent the record upon receiving the error.
+
+            # max.in.flight.requests.per.connection - if set to 1, only one
+            # request can be sent to the broker at a time, guaranteeing the
+            # order if retries is enabled.
+
             properties = self.common_properties
             properties.update({
                 'partition.assignment.strategy': 'roundrobin',
-                'queue.buffering.max.ms': '1'
+                'retries': 3,
+                'queue.buffering.max.ms': 1000,
+                'batch.num.messages': 100
             })
 
-            # Asynchronous Kafka Producer
+            if self.synchronous:
+                properties.update({
+                    'retries': 5,
+                    'max.in.flight.requests.per.connection': 1,
+                    'queue.buffering.max.ms': 1,
+                    'batch.num.messages': 1
+                })
+
             self.producer = Producer(properties)
 
         running = True
@@ -108,25 +132,26 @@ class Link:
             transform_callback_args = None
             transform_callback_kwargs = None
 
-            queue_item_callback = None
-            queue_item_callback_args = None
-            queue_item_callback_kwargs = None
-
-            if type(queue_item) == tuple:
-                queue_item_callback = queue_item[1]
-                if len(queue_item) > 2:
-                    if type(queue_item[2]) == list:
-                        queue_item_callback_args = queue_item[2]
-                    elif type(queue_item[2]) == dict:
-                        queue_item_callback_kwargs = queue_item[2]
-                queue_item = queue_item[0]
-
-            # Custom input
-            if type(queue_item) is Electron:
+            # If the item is inserted from a custom_input it will be an
+            # individual electron
+            if type(queue_item) == Electron:
                 electrons = [queue_item]
 
-            # Kafka Input
+            # If the item comes from the Kafka consumer, it could be an
+            # string or a serialized individual electron
             else:
+                kafka_consumer_commit_callback = None
+                kafka_consumer_commit_callback_args = None
+                kafka_consumer_commit_callback_kwargs = None
+                if type(queue_item) == tuple:
+                    kafka_consumer_commit_callback = queue_item[1]
+                    if len(queue_item) > 2:
+                        if type(queue_item[2]) == list:
+                            kafka_consumer_commit_callback_args = queue_item[2]
+                        elif type(queue_item[2]) == dict:
+                            kafka_consumer_commit_callback_kwargs = queue_item[2]
+                    queue_item = queue_item[0]
+
                 try:
                     electron = pickle.loads(queue_item.value())
                 except Exception:
@@ -147,12 +172,13 @@ class Link:
                 try:
                     transform_result = self.transform(electron)
                 except Exception:
-                    util.print_exception(self, 'Exception during the execution of "transform". Exiting...',
-                                               fatal=True)
+                    util.print_exception(
+                        self,
+                        'Exception during the execution of "transform". Exiting...',
+                        fatal=True)
 
                 if type(transform_result) == tuple:
                     electrons = transform_result[0]
-
                     # Function to call if asynchronous mode is enabled after
                     # a message is correctly commited to a Kafka broker
                     if len(transform_result) > 1:
@@ -165,64 +191,70 @@ class Link:
                 else:
                     electrons = transform_result
 
-                if electrons and type(electrons) is not list:
+                # Even if no electrons are returned in the transform method,
+                # continue so the input electron can be commited by the Kafka
+                # consumer (synchronous mode, kafka_output).
+                if electrons == None:
+                    electrons = []
+
+                # If there is only one electron, convert it to a list
+                elif type(electrons) == Electron:
                     electrons = [electrons]
 
-            if not kafka_producer or not electrons:
-                # Synchronous writes
-                if not self.asynchronous and queue_item_callback:
-                    self._execute_queue_item_callback(
-                        queue_item_callback,
-                        queue_item_callback_kwargs,
-                        queue_item_callback_args)
-                continue
+            if kafka_producer:
+                for electron in electrons:
+                    # The key is enconded for its use as partition key
+                    partition_key = None
+                    if electron.key:
+                        if type(electron.key) == str:
+                            partition_key = electron.key.encode('utf-8')
+                        else:
+                            partition_key = pickle.dumps(electron.key)
 
-            for electron in electrons:
-                # The key is enconded for its use as partition key
-                partition_key = None
-                if electron.key:
-                    if type(electron.key) is str:
-                        partition_key = electron.key.encode('utf-8')
-                    else:
-                        partition_key = pickle.dumps(electron.key)
+                    # Electrons are serialized with pickle
+                    output = pickle.dumps(electron, protocol=4)
 
-                # Electrons are serialized with pickle
-                output = pickle.dumps(electron, protocol=4)
+                    # If the destiny topic is not specified, the first is used
+                    if not electron.topic:
+                        if not self.output_topics:
+                            util.print_error(self, "Electron / default output topic unset. Exiting...", fatal=True)
 
-                # If the destiny topic is not specified, the first is used
-                if not electron.topic:
-                    if not self.output_topics:
-                        util.print_error(self, "Electron / default output topic unset. Exiting...", fatal=True)
+                        electron.topic = self.output_topics[0]
 
-                    electron.topic = self.output_topics[0]
+                    try:
+                        # If partition_key = None, the partition.assignment.strategy
+                        # is used to distribute the messages
+                        self.producer.produce(topic=electron.topic,
+                                              key=partition_key,
+                                              value=output)
 
-                try:
-                    self.producer.produce(topic=electron.topic,
-                                          key=partition_key,
-                                          value=output)
+                        # Asynchronous
+                        if self.asynchronous:
+                            self.producer.poll(0)
 
-                    # Asynchronous
-                    if self.asynchronous:
-                        self.producer.poll(0)
+                        # Synchronous
+                        else:
+                            # Wait for all messages in the Producer queue to be delivered.
+                            self.producer.flush()
 
-                    # Synchronous
-                    else:
-                        # Wait for all messages in the Producer queue to be delivered.
-                        self.producer.flush()
-
-                except Exception:
-                    util.print_exception(self, "Kafka producer error. Exiting...", fatal=True)
+                    except Exception:
+                        util.print_exception(self, "Kafka producer error. Exiting...", fatal=True)
 
             # Synchronous
-            if not self.asynchronous:
-                # Intended for message commits
-                if queue_item_callback:
-                    self._execute_queue_item_callback(
-                        queue_item_callback,
-                        queue_item_callback_kwargs,
-                        queue_item_callback_args)
+            if self.synchronous:
+                # If the item comes from the Kafka consumer, intended for
+                # message commits
+                if kafka_consumer_commit_callback:
+                    self._execute_kafka_consumer_commit_callback(
+                        kafka_consumer_commit_callback,
+                        kafka_consumer_commit_callback_kwargs,
+                        kafka_consumer_commit_callback_args)
 
-                # Optional micromodule callback
+                # Optional micromodule callback after processing ONE item
+                # in the transform method. If multiple seperated electrons
+                # are returned, multiple messages will be send but the callback
+                # method will be called only once if all the messages were
+                # sent correctly.
                 if transform_callback:
                     if transform_callback_kwargs:
                         transform_callback(**transform_callback_kwargs)
@@ -312,13 +344,13 @@ class Link:
                                 util.print_error(self, str(message.error()))
                         else:
                             # Synchronous commit
-                            if not self.asynchronous:
+                            if self.synchronous:
                                 # consumer.commit(asynchronous=False)
                                 # Commit when the transformation is commited
                                 self.queue.put((message, consumer.commit, {'message': message, 'asynchronous': False}))
                                 continue
 
-                            # Asynchronous
+                            # Asynchronous (only one topic)
                             if len(subscription) == 1 or self.mki_mode == 'parity':
                                 self.queue.put(message)
                                 continue
@@ -423,7 +455,7 @@ class Link:
               consumer_group=None,
               asynchronous=True,
               synchronous=None,
-              consumer_timeout=10000):
+              consumer_timeout=20000):
         self.link_mode = link_mode
         self.mki_mode = mki_mode
         if not consumer_group:
@@ -434,6 +466,7 @@ class Link:
         self.asynchronous = asynchronous
         if synchronous:
             self.asynchronous = not synchronous
+        self.synchronous = not asynchronous
 
         if self.asynchronous:
             logging.info(self.__class__.__name__ + ' execution mode: asynchronous.')

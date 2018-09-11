@@ -13,7 +13,7 @@ def get_current_timestamp():
 
 def print_error(instance, message, fatal=False):
     message = 'Error at ' + instance.__class__.__name__ \
-        + '\nMessage: ' + message + '\n\n'
+        + '. Message: ' + message
     if fatal:
         logging.critical(message)
         os._exit(1)

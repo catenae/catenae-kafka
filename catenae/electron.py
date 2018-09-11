@@ -4,8 +4,12 @@
 
 class Electron(object):
 
-    def __init__(self, key, value, keep_key=True,
-                 topic=None, previous_topic=None):
+    def __init__(self,
+                 key=None,
+                 value=None,
+                 keep_key=True,
+                 topic=None,
+                 previous_topic=None):
         self.key = key
         self.value = value
         self.keep_key = keep_key
