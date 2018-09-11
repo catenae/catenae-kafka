@@ -60,8 +60,6 @@ class Link:
         logging.getLogger().setLevel(log_level)
         logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s',
                             datefmt='%Y-%m-%d %H:%M:%S')
-
-        self.lock = threading.RLock()
         self._load_args()
 
     def _execute_kafka_consumer_commit_callback(self,
@@ -421,10 +419,6 @@ class Link:
         pass
 
     def send(self, electron):
-        # Only take care for source modules
-        if not self._is_custom_input():
-            util.print_error(target, f"Invoking send method from a non generator module \"{target.__name__}\".")
-            return
         self.queue.put(electron)
 
     def generator(self):

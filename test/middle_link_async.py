@@ -26,7 +26,8 @@ class MiddleLinkAsync(Link):
                 self.remove_input_topic("input2")
                 logging.debug(f'{self.__class__.__name__} -> INPUT CHANGED {self.input_topics}')
 
-        return electron
+        self.send(electron)
+
 
 if __name__ == "__main__":
     MiddleLinkAsync(log_level='DEBUG').start(consumer_group='custom_group_1')
