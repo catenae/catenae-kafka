@@ -218,7 +218,6 @@ class Link:
                     if not electron.topic:
                         if not self.output_topics:
                             util.print_error(self, "Electron / default output topic unset. Exiting...", fatal=True)
-
                         electron.topic = self.output_topics[0]
 
                     try:
@@ -242,14 +241,6 @@ class Link:
 
             # Synchronous
             if self.synchronous:
-                # If the item comes from the Kafka consumer, intended for
-                # message commits
-                if kafka_consumer_commit_callback:
-                    self._execute_kafka_consumer_commit_callback(
-                        kafka_consumer_commit_callback,
-                        kafka_consumer_commit_callback_kwargs,
-                        kafka_consumer_commit_callback_args)
-
                 # Optional micromodule callback after processing ONE item
                 # in the transform method. If multiple seperated electrons
                 # are returned, multiple messages will be send but the callback
@@ -262,6 +253,14 @@ class Link:
                         transform_callback(*transform_callback_args)
                     else:
                         transform_callback()
+
+                # If the item comes from the Kafka consumer, intended for
+                # message commits
+                if kafka_consumer_commit_callback:
+                    self._execute_kafka_consumer_commit_callback(
+                        kafka_consumer_commit_callback,
+                        kafka_consumer_commit_callback_kwargs,
+                        kafka_consumer_commit_callback_args)
 
     def _break_consumer_loop(self):
         return len(subscription) > 1 and self.mki_mode != 'parity'
@@ -345,7 +344,6 @@ class Link:
                         else:
                             # Synchronous commit
                             if self.synchronous:
-                                # consumer.commit(asynchronous=False)
                                 # Commit when the transformation is commited
                                 self.queue.put((message, consumer.commit, {'message': message, 'asynchronous': False}))
                                 continue
@@ -421,8 +419,26 @@ class Link:
         # Needed since the setup method can be left blank
         pass
 
+    def send(self, electron):
+        # Only take care for source modules
+        if not self._is_custom_input():
+            util.print_error(target, f"Invoking send method from a non generator module \"{target.__name__}\".")
+            return
+        self.queue.put(electron)
+
+    def generator(self):
+        """ If the generator method was not overrided in the main script an
+        error will be printed and the execution will finish """
+        util.print_error(self,
+                         "Undefined \"generator\" method. Exiting...",
+                         fatal=True)
+
     def custom_input(self):
-        util.print_error(self, "Void \"custom_input\". Exiting...", fatal=True)
+        """ If a custom_input method is not defined by the main script,
+        the new standard generator will be invoked. This is to support both
+        method names for previous modules, but custom_input should be
+        considered deprecated """
+        return self.generator()
 
     @staticmethod
     def _thread_target(**kwargs):
@@ -466,7 +482,7 @@ class Link:
         self.asynchronous = asynchronous
         if synchronous:
             self.asynchronous = not synchronous
-        self.synchronous = not asynchronous
+        self.synchronous = not self.asynchronous
 
         if self.asynchronous:
             logging.info(self.__class__.__name__ + ' execution mode: asynchronous.')
@@ -508,7 +524,7 @@ class Link:
             util.print_exception(self, "Exception during the execution of \"setup\". Exiting...", fatal=True)
 
         # Output
-        output_kwargs, output_thread = self._get_output_opts()
+        output_kwargs, output_thread = self._get_output_thread()
 
         # Input
         input_kwargs, input_thread = self._get_input_thread()
@@ -522,7 +538,7 @@ class Link:
         input_thread.start()
         logging.info(self.__class__.__name__ + ' link started.')
 
-    def _get_output_opts(self):
+    def _get_output_thread(self):
         # Disable Kafka producer for custom output modes
         kafka_producer = True
         if self._is_custom_output():

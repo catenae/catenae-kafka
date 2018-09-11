@@ -7,7 +7,6 @@ import random
 
 class MiddleLinkAsync(Link):
     def setup(self):
-        logging.getLogger().setLevel(logging.DEBUG)
         logging.debug(f'{self.__class__.__name__} -> setup()')
         logging.debug(f'{self.__class__.__name__} -> input_topics: {self.input_topics}')
         logging.debug(f'{self.__class__.__name__} -> output_topics: {self.output_topics}')
@@ -30,4 +29,4 @@ class MiddleLinkAsync(Link):
         return electron
 
 if __name__ == "__main__":
-    MiddleLinkAsync().start(consumer_group='custom_group_1')
+    MiddleLinkAsync(log_level='DEBUG').start(consumer_group='custom_group_1')

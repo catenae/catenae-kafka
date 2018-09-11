@@ -20,7 +20,6 @@ class MiddleLinkSync(Link):
         logging.debug(f'{self.__class__.__name__} -> Callback called, args: {arg1}, {arg2}')
 
     def setup(self):
-        logging.getLogger().setLevel(logging.DEBUG)
         logging.debug(f'{self.__class__.__name__} -> setup()')
         logging.debug(f'{self.__class__.__name__} -> input_topics: {self.input_topics}')
         logging.debug(f'{self.__class__.__name__} -> output_topics: {self.output_topics}')
@@ -58,6 +57,6 @@ class MiddleLinkSync(Link):
 
 
 if __name__ == "__main__":
-    MiddleLinkSync().start(consumer_group='custom_group_2',
-                           consumer_timeout=10000,
-                           synchronous=True)
+    MiddleLinkSync(log_level='DEBUG').start(consumer_group='custom_group_2',
+                                            consumer_timeout=10000,
+                                            synchronous=True)
