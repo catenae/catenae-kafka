@@ -132,6 +132,10 @@ class Link:
             transform_callback_args = None
             transform_callback_kwargs = None
 
+            kafka_consumer_commit_callback = None
+            kafka_consumer_commit_callback_args = None
+            kafka_consumer_commit_callback_kwargs = None
+
             # If the item is inserted from a custom_input it will be an
             # individual electron
             if type(queue_item) == Electron:
@@ -140,9 +144,6 @@ class Link:
             # If the item comes from the Kafka consumer, it could be an
             # string or a serialized individual electron
             else:
-                kafka_consumer_commit_callback = None
-                kafka_consumer_commit_callback_args = None
-                kafka_consumer_commit_callback_kwargs = None
                 if type(queue_item) == tuple:
                     kafka_consumer_commit_callback = queue_item[1]
                     if len(queue_item) > 2:
@@ -211,21 +212,21 @@ class Link:
                         else:
                             partition_key = pickle.dumps(electron.key)
 
-                    # Electrons are serialized with pickle
-                    output = pickle.dumps(electron, protocol=4)
-
                     # If the destiny topic is not specified, the first is used
                     if not electron.topic:
                         if not self.output_topics:
                             util.print_error(self, "Electron / default output topic unset. Exiting...", fatal=True)
                         electron.topic = self.output_topics[0]
 
+                    # Electrons are serialized with pickle
+                    serialized_electron = pickle.dumps(electron, protocol=4)
+
                     try:
                         # If partition_key = None, the partition.assignment.strategy
                         # is used to distribute the messages
                         self.producer.produce(topic=electron.topic,
                                               key=partition_key,
-                                              value=output)
+                                              value=serialized_electron)
 
                         # Asynchronous
                         if self.asynchronous:
@@ -693,11 +694,9 @@ class Link:
             self.input_topics = None
 
         # Output topics
-        # self.queues = []
         if args.output_topics:
             self.output_topics = args.output_topics.split(',')
-            # for topic in self.output_topics:
-            #     self.queues.append(LinkQueue())
+
         else:
             self.output_topics = None
 
