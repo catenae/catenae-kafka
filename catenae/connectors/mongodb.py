@@ -93,8 +93,11 @@ class MongodbConnector:
         collection = self._get_collection(database_name, collection_name)
         collection.update_one(query, {'$set': value}, upsert=True)
 
-    def put(self, value, database_name=None, collection_name=None):
-        self.insert_one(value, database_name, collection_name)
+    def put(self, value, query=None, database_name=None, collection_name=None):
+        if query:
+            self.update_one(query, value, database_name, collection_name)
+        else:
+            self.insert_one(value, database_name, collection_name)
 
     def insert_one(self, value, database_name=None, collection_name=None):
         self.open_connection()
