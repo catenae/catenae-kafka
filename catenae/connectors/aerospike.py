@@ -64,18 +64,37 @@ class AerospikeConnector:
         try:
             as_key = (namespace, set_, key)
             (_, _, bins) = self.client.get(as_key)
+            # Return a single value if there is only one bin
+            if len(bins) == 1:
+                if 'value' in bins:
+                    return bins['value']
+            # Return a tuple if the record is of type key -> (key, value)
+            elif len(bins) == 2:
+                if 'key' in bins and 'value' in bins:
+                    return bins['key'], bins['value']
+                elif 'key' in bins and key in bins:
+                    return bins['key'], bins[key]
             return bins
         except Exception:
             return
 
-    def put(self, key, bins=None, namespace=None, set_=None, store_key=True):
+    def put(self, key, bins=None, namespace=None, set_=None, store_key=False):
         self.open_connection()
         namespace, set_ = \
             AerospikeConnector._set_namespace_set_names(namespace, set_)
-        if not bins:
-            bins = {'key': key}
-        elif store_key:
-            bins['key'] = key
+        if store_key:
+            if bins == None:
+                bins = {'key': key}
+            elif type(bins) == dict:
+                bins['key'] = key
+            else:
+                bins = {'key': key, 'value': bins}
+        else:
+            # Reduce bin size
+            if bins == None:
+                bins = 0
+            if type(bins) != dict:
+                bins = {'value': bins}
         as_key = (namespace, set_, key)
         self.client.put(as_key, bins)
 
