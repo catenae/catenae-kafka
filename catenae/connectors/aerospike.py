@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import aerospike
+from aerospike import exception as aerospike_exceptions
 
 
 class AerospikeConnector:
@@ -61,22 +62,22 @@ class AerospikeConnector:
         self.open_connection()
         namespace, set_ = \
             AerospikeConnector._set_namespace_set_names(namespace, set_)
+        as_key = (namespace, set_, key)
         try:
-            as_key = (namespace, set_, key)
             (_, _, bins) = self.client.get(as_key)
-            # Return a single value if there is only one bin
-            if len(bins) == 1:
-                if 'value' in bins:
-                    return bins['value']
-            # Return a tuple if the record is of type key -> (key, value)
-            elif len(bins) == 2:
-                if 'key' in bins and 'value' in bins:
-                    return bins['key'], bins['value']
-                elif 'key' in bins and key in bins:
-                    return bins['key'], bins[key]
-            return bins
-        except Exception:
-            return
+        except aerospike_exceptions.RecordNotFound as e:
+            return None, None
+        # Return a single value if there is only one bin
+        if len(bins) == 1:
+            if 'value' in bins:
+                return None, bins['value']
+        # Return a tuple if the record is of type key -> (key, value)
+        elif len(bins) == 2:
+            if 'key' in bins and 'value' in bins:
+                return bins['key'], bins['value']
+            elif 'key' in bins and key in bins:
+                return bins['key'], bins[key]
+        return None, bins
 
     def put(self, key, bins=None, namespace=None, set_=None, store_key=False):
         self.open_connection()
@@ -105,7 +106,6 @@ class AerospikeConnector:
             AerospikeConnector._set_namespace_set_names(namespace, set_)
         if not name:
             name = bin_ + '_index'
-        print(namespace)
         if type_ == 'string':
             self.client.index_string_create(namespace, set_, bin_, name)
         elif type_ == 'integer' or type_ == 'numeric':
