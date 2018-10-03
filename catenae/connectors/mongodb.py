@@ -85,6 +85,19 @@ class MongodbConnector:
             result = result.limit(limit)
         return result
 
+    def get_random(self, query=None, database_name=None, collection_name=None,
+                   sort=None, limit=1):
+        self.open_connection()
+        database_name, collection_name = \
+           MongodbConnector._set_database_collection_names(database_name,
+                                                           collection_name)
+        collection = self._get_collection(database_name, collection_name)
+        result = collection.aggregate([{'$sample': {'size': limit}}])
+        try:
+            return next(result)
+        except StopIteration:
+            return
+
     def update_one(self, query, value, database_name=None, collection_name=None):
         self.open_connection()
         database_name, collection_name = \
