@@ -52,17 +52,17 @@ class Link:
         self._load_args()
 
     def _get_log_level(self, log_level_tag):
-        if log_level == 'NOTSET':
+        if log_level_tag == 'NOTSET':
             return logging.NOTSET
-        elif log_level == 'DEBUG':
+        elif log_level_tag == 'DEBUG':
             return logging.DEBUG
-        elif log_level == 'INFO':
+        elif log_level_tag == 'INFO':
             return logging.INFO
-        elif log_level == 'WARNING':
+        elif log_level_tag == 'WARNING':
             return logging.WARNING
-        elif log_level == 'ERROR':
+        elif log_level_tag == 'ERROR':
             return logging.ERROR
-        elif log_level == 'CRITICAL':
+        elif log_level_tag == 'CRITICAL':
             return logging.CRITICAL
 
     def _execute_kafka_consumer_commit_callback(self,
