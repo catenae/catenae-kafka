@@ -45,13 +45,13 @@ class Link:
     ##########################################################################
 
     def __init__(self, log_level='INFO'):
-        log_level =  self.__get_log_level(log_level)
+        log_level =  self._get_log_level(log_level)
         logging.getLogger().setLevel(log_level)
         logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s',
                             datefmt='%Y-%m-%d %H:%M:%S')
         self._load_args()
 
-    def __get_log_level(self, log_level_tag):
+    def _get_log_level(self, log_level_tag):
         if log_level == 'NOTSET':
             return logging.NOTSET
         elif log_level == 'DEBUG':
