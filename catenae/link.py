@@ -45,22 +45,25 @@ class Link:
     ##########################################################################
 
     def __init__(self, log_level='INFO'):
-        if log_level == 'NOTSET':
-            log_level = logging.NOTSET
-        elif log_level == 'DEBUG':
-            log_level = logging.DEBUG
-        elif log_level == 'INFO':
-            log_level = logging.INFO
-        elif log_level == 'WARNING':
-            log_level = logging.WARNING
-        elif log_level == 'ERROR':
-            log_level = logging.ERROR
-        elif log_level == 'CRITICAL':
-            log_level = logging.CRITICAL
+        log_level =  self.__get_log_level(log_level)
         logging.getLogger().setLevel(log_level)
         logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s',
                             datefmt='%Y-%m-%d %H:%M:%S')
         self._load_args()
+
+    def __get_log_level(self, log_level_tag):
+        if log_level == 'NOTSET':
+            return logging.NOTSET
+        elif log_level == 'DEBUG':
+            return logging.DEBUG
+        elif log_level == 'INFO':
+            return logging.INFO
+        elif log_level == 'WARNING':
+            return logging.WARNING
+        elif log_level == 'ERROR':
+            return logging.ERROR
+        elif log_level == 'CRITICAL':
+            return logging.CRITICAL
 
     def _execute_kafka_consumer_commit_callback(self,
         kafka_consumer_commit_callback,
