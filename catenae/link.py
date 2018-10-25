@@ -325,7 +325,7 @@ class Link:
 
                         message = consumer.poll()
 
-                        if not message.key() and not message.value():
+                        if not message or (not message.key() and not message.value()):
                             if not self._break_consumer_loop:
                                 continue
                             # New topic / restart if there are more topics or
