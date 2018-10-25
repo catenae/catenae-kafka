@@ -1,3 +1,3 @@
 #!/bin/bash
-./build.sh
+cd ..; ./build.sh; cd connectors
 docker-compose up -d

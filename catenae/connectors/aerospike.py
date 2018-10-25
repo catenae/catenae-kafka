@@ -7,19 +7,28 @@ from aerospike import exception as aerospike_exceptions
 
 class AerospikeConnector:
 
-    DEFAULT_NAMESPACE = 'test'
-    DEFAULT_SET = 'test'
-
     def __init__(self, bootstrap_server, bootstrap_port, default_namespace=None,
                  default_set=None, connect=False):
-        self.config = {'hosts': [(bootstrap_server, bootstrap_port)]}
+        self.config = {'hosts': [(bootstrap_server, bootstrap_port)],
+                       'policies': {'timeout': 5000}}
         if default_namespace:
-            AerospikeConnector.DEFAULT_NAMESPACE = default_namespace
+            self.namespace = default_namespace
+        else:
+            self.namespace = 'test'
         if default_set:
-            AerospikeConnector.DEFAULT_SET = default_set
+            self.set = default_set
+        else:
+            self.set = 'test'
         self.client = None
         if connect:
             self.open_connection()
+
+    def _connect_get_askey(self, key, namespace, set_):
+        self.open_connection()
+        namespace, set_ = \
+            self._set_namespace_set_names(namespace, set_)
+        as_key = (namespace, set_, key)
+        return as_key
 
     def open_connection(self):
         if self.client == None:
@@ -28,19 +37,19 @@ class AerospikeConnector:
     def close_connection(self):
         if self.client != None:
             self.client.close()
+            self.client = None
 
-    @staticmethod
-    def _set_namespace_set_names(namespace, set_):
+    def _set_namespace_set_names(self, namespace, set_):
         if not namespace:
-            namespace = AerospikeConnector.DEFAULT_NAMESPACE
+            namespace = self.namespace
         if not set_:
-            set_ = AerospikeConnector.DEFAULT_SET
+            set_ = self.set
         return namespace, set_
 
     def get_and_close(self, key, namespace=None, set_=None):
         self.open_connection()
         namespace, set_ = \
-            AerospikeConnector._set_namespace_set_names(namespace, set_)
+            self._set_namespace_set_names(namespace, set_)
         try:
             bins = self.get(key, namespace, set_)
             self.close_connection()
@@ -51,7 +60,7 @@ class AerospikeConnector:
     def exists(self, key, namespace=None, set_=None):
         self.open_connection()
         namespace, set_ = \
-            AerospikeConnector._set_namespace_set_names(namespace, set_)
+            self._set_namespace_set_names(namespace, set_)
         _, meta = self.client.exists((namespace, set_, key))
         if meta == None:
             return False
@@ -59,10 +68,7 @@ class AerospikeConnector:
             return True
 
     def get(self, key, namespace=None, set_=None):
-        self.open_connection()
-        namespace, set_ = \
-            AerospikeConnector._set_namespace_set_names(namespace, set_)
-        as_key = (namespace, set_, key)
+        as_key = self._connect_get_askey(key, namespace, set_)
         try:
             (_, _, bins) = self.client.get(as_key)
         except aerospike_exceptions.RecordNotFound as e:
@@ -71,6 +77,8 @@ class AerospikeConnector:
         if len(bins) == 1:
             if 'value' in bins:
                 return None, bins['value']
+            elif 'key' in bins:
+                return bins['key'], None
         # Return a tuple if the record is of type key -> (key, value)
         elif len(bins) == 2:
             if 'key' in bins and 'value' in bins:
@@ -80,9 +88,6 @@ class AerospikeConnector:
         return None, bins
 
     def put(self, key, bins=None, namespace=None, set_=None, store_key=False):
-        self.open_connection()
-        namespace, set_ = \
-            AerospikeConnector._set_namespace_set_names(namespace, set_)
         if store_key:
             if bins == None:
                 bins = {'key': key}
@@ -96,14 +101,18 @@ class AerospikeConnector:
                 bins = 0
             if type(bins) != dict:
                 bins = {'value': bins}
-        as_key = (namespace, set_, key)
+        as_key = self._connect_get_askey(key, namespace, set_)
         self.client.put(as_key, bins)
+
+    def remove(self, key, namespace=None, set_=None):
+        as_key = self._connect_get_askey(key, namespace, set_)
+        self.client.remove(as_key)
 
     def create_index(self, bin_, set_=None, type_='string', name=None,
                      namespace=None):
         self.open_connection()
         namespace, set_ = \
-            AerospikeConnector._set_namespace_set_names(namespace, set_)
+            self._set_namespace_set_names(namespace, set_)
         if not name:
             name = bin_ + '_index'
         if type_ == 'string':
