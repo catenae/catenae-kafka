@@ -9,6 +9,7 @@ aerospike = AerospikeConnector('aerospike',
                                default_namespace='catenae',
                                default_set='catenae',
                                connect=True)
+
 # Open and close a connection
 aerospike.open_connection()
 aerospike.close_connection()
@@ -56,3 +57,5 @@ aerospike.put(sample_key, bins=bins)
 aerospike.create_index('bin1', type_='string', name='bin1_idx')
 aerospike.get_and_close('key1')
 aerospike.remove(sample_key)
+
+print('PASSED')

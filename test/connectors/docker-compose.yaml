@@ -8,12 +8,6 @@ x-logging: &default-logging
 
 services:
 
-  kafka:
-    image: catenae/kafka
-    volumes:
-      - ./kafka/config/server.properties:/opt/kafka/default/config/server.properties:ro
-    logging: *default-logging
-
   aerospike:
     image: aerospike/aerospike-server:4.3.0.7
     volumes:
@@ -31,7 +25,14 @@ services:
 
   aerospike_connector:
     image: catenae/test
-    command: aerospike_connector.py -o input1 -b kafka:9092
+    command: aerospike_connector.py
     working_dir: /opt/catenae/test/connectors
     depends_on:
-      - kafka
+      - aerospike
+
+  mongodb_connector:
+    image: catenae/test
+    command: mongodb_connector.py
+    working_dir: /opt/catenae/test/connectors
+    depends_on:
+      - mongodb
