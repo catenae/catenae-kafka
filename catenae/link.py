@@ -128,7 +128,7 @@ class Link:
 
         running = True
         while running:
-            queue_item = self.queue.get()
+            queue_item = self._messages_queue.get()
 
             transform_callback = None
             transform_callback_args = None
@@ -348,12 +348,12 @@ class Link:
                             # Synchronous commit
                             if self.synchronous:
                                 # Commit when the transformation is commited
-                                self.queue.put((message, consumer.commit, {'message': message, 'asynchronous': False}))
+                                self._messages_queue.put((message, consumer.commit, {'message': message, 'asynchronous': False}))
                                 continue
 
                             # Asynchronous (only one topic)
                             if len(subscription) == 1 or self.mki_mode == 'parity':
-                                self.queue.put(message)
+                                self._messages_queue.put(message)
                                 continue
 
                             # Asynchronous (with penalizations support for
@@ -364,18 +364,18 @@ class Link:
                             message_buffer.append(message)
                             current_queued_messages = len(message_buffer)
 
-                            self.queue.messages_left = \
-                                self.queue.messages_left - 1
+                            self._messages_queue.messages_left = \
+                                self._messages_queue.messages_left - 1
 
                             # If there is only one message left, the offset is
                             # committed
-                            if self.queue.messages_left < 1:
+                            if self._messages_queue.messages_left < 1:
                                 for message in message_buffer:
-                                    self.queue.put(message)
+                                    self._messages_queue.put(message)
                                 message_buffer = []
 
-                                self.queue.messages_left = \
-                                    self.queue.minimum_messages
+                                self._messages_queue.messages_left = \
+                                    self._messages_queue.minimum_messages
 
                             # Penalize if only one message was consumed
                             if not self._break_consumer_loop \
@@ -388,7 +388,7 @@ class Link:
 
                     # Dump the buffer before changing the subscription
                     for message in message_buffer:
-                        self.queue.put(message)
+                        self._messages_queue.put(message)
 
                 except Exception as e:
                     util.print_exception(self, "Kafka consumer error. Exiting...")
@@ -423,7 +423,7 @@ class Link:
         pass
 
     def send(self, electron):
-        self.queue.put(electron)
+        self._messages_queue.put(electron)
 
     def generator(self):
         """ If the generator method was not overrided in the main script an
@@ -494,7 +494,7 @@ class Link:
 
         self.consumer_timeout = consumer_timeout
 
-        self.queue = LinkQueue()
+        self._messages_queue = LinkQueue()
 
         self.common_properties = {
             'bootstrap.servers': self.kafka_host_port,
