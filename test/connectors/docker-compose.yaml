@@ -24,14 +24,14 @@ services:
     logging: *default-logging
 
   aerospike_connector:
-    image: catenae/test
+    image: catenae/link:test
     command: aerospike_connector.py
     working_dir: /opt/catenae/test/connectors
     depends_on:
       - aerospike
 
   mongodb_connector:
-    image: catenae/test
+    image: catenae/link:test
     command: mongodb_connector.py
     working_dir: /opt/catenae/test/connectors
     depends_on:

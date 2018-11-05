@@ -1,7 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from pymongo import MongoClient
+from pymongo import (
+    MongoClient,
+    ASCENDING,
+    DESCENDING,
+)
 
 
 class MongodbConnector:
@@ -54,9 +58,13 @@ class MongodbConnector:
         return True
 
     def create_index(self, attribute, database_name=None, collection_name=None,
-                     unique=False):
+                     unique=False, type_='asc'):
+        if type_ == 'desc':
+            type_ = DESCENDING
+        else:
+            type_ = ASCENDING
         collection = self._get_collection(database_name, collection_name)
-        collection.create_index(attribute, unique=unique, background=True)
+        collection.create_index([(attribute, type_)], unique=unique, background=True)
 
     def get(self, query=None, database_name=None, collection_name=None, sort=None,
             limit=None):

@@ -15,42 +15,42 @@ services:
     logging: *default-logging
 
   source_link:
-    image: catenae/test
+    image: catenae/link:test
     command: source_link.py -o input1 -b kafka:9092
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka
 
   source_link_3:
-    image: catenae/test
+    image: catenae/link:test
     command: source_link.py -o input2 -b kafka:9092
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka
 
   middle_link_async_1:
-    image: catenae/test
+    image: catenae/link:test
     command: middle_link_async.py -i input1 -o input3 -b kafka:9092
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka
 
   middle_link_async_2:
-    image: catenae/test
+    image: catenae/link:test
     command: middle_link_async.py -i input1 -o input3 -b kafka:9092
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka
 
   middle_link_sync:
-    image: catenae/test
+    image: catenae/link:test
     command: middle_link_sync.py -i input1 -o input3 -b kafka:9092
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka
 
   leaf_link:
-    image: catenae/test
+    image: catenae/link:test
     command: leaf_link.py -i input3 -b kafka:9092
     working_dir: /opt/catenae/test/kafka
     depends_on:

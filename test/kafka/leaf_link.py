@@ -18,4 +18,5 @@ class LeafLink(Link):
 
 
 if __name__ == "__main__":
-    LeafLink().start(link_mode=Link.CUSTOM_OUTPUT)
+    LeafLink().start(link_mode=Link.CUSTOM_OUTPUT,
+                     random_consumer_group=True)

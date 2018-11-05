@@ -16,6 +16,7 @@ from .connectors.aerospike import AerospikeConnector
 from .connectors.mongodb import MongodbConnector
 from .connectors.local import LocalConnector
 import logging
+from uuid import uuid4
 
 
 class LinkQueue(Queue):
@@ -298,7 +299,7 @@ class Link:
             })
 
         consumer = Consumer(properties)
-        logging.info(f'{self.__class__.__name__}: consumer group - {self.consumer_group}')
+        logging.info(f'{self.__class__.__name__} consumer group: {self.consumer_group}')
         running = True
         prev_queued_messages = 0
         while running:
@@ -469,13 +470,17 @@ class Link:
               consumer_group=None,
               asynchronous=True,
               synchronous=None,
-              consumer_timeout=20000):
+              consumer_timeout=20000,
+              random_consumer_group=False):
         self.link_mode = link_mode
         self.mki_mode = mki_mode
-        if not consumer_group:
-            self.consumer_group = self.__class__.__name__
-        else:
+
+        if random_consumer_group:
+            self.consumer_group = str(uuid4())
+        elif consumer_group:
             self.consumer_group = consumer_group
+        else:
+            self.consumer_group = self.__class__.__name__
 
         self.asynchronous = asynchronous
         if synchronous:
