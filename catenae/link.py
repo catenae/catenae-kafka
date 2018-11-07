@@ -155,19 +155,19 @@ class Link:
                             kafka_consumer_commit_callback_kwargs = queue_item[2]
                     queue_item = queue_item[0]
 
-                try:
-                    value = pickle.loads(queue_item.value())
-                except:
-                    value = None
-                if type(value) == Electron:
-                    electron = value
-                else:
-                    if value == None or type(value) == bytes:
+                if type(queue_item.value()) == Electron:
+                    electron = queue_item.value()
+                elif type(queue_item.value()) == bytes:
+                    try:
+                        electron = Electron(queue_item.key(),
+                                            queue_item.value().decode('utf-8'))
+                    except Exception:
                         try:
-                            value = queue_item.value().decode('utf-8')
+                            electron = pickle.loads(queue_item.value())
+                            if type(electron) != Electron:
+                                electron = Electron(queue_item.key(), electron)
                         except Exception:
-                            pass
-                    electron = Electron(queue_item.key(), value)
+                            electron = Electron(queue_item.key(), queue_item.value())
 
                 # Clean the previous topic
                 electron.previous_topic = electron.topic
