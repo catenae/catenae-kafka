@@ -156,15 +156,18 @@ class Link:
                     queue_item = queue_item[0]
 
                 try:
-                    electron = pickle.loads(queue_item.value())
-                except Exception:
-                    try:
-                        electron = \
-                            Electron(queue_item.key(),
-                                     queue_item.value().decode('utf-8'))
-                    except Exception:
-                        util.print_exception(self, 'Unsupported serialization.')
-                        continue
+                    value = pickle.loads(queue_item.value())
+                except:
+                    value = None
+                if type(value) == Electron:
+                    electron = value
+                else:
+                    if value == None or type(value) == bytes:
+                        try:
+                            value = queue_item.value().decode('utf-8')
+                        except Exception:
+                            pass
+                    electron = Electron(queue_item.key(), value)
 
                 # Clean the previous topic
                 electron.previous_topic = electron.topic
