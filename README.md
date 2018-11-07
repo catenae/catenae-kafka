@@ -14,10 +14,10 @@ from catenae import Link, Electron
 class BitcoinFilter(Link):
 
     def setup(self):
-        self.allowed_tokens = ['bitcoin', 'btc']
+        self.allowed_tokens = set(['bitcoin', 'btc'])
 
     def transform(self, electron):
-        tokens = electron.value.split()
+        tokens = set(electron.value.split())
         if self.allowed_tokens.intersection(tokens):
             return electron
         
