@@ -613,7 +613,7 @@ class Link:
     def load_object(self, object_name):
         try:
             if self.resources_location == 'aerospike':
-                obj = self.aerospike.get_and_close(
+                _, obj = self.aerospike.get_and_close(
                     object_name,
                     self.aerospike_resources_namespace,
                     self.aerospike_resources_set
