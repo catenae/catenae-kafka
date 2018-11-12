@@ -16,6 +16,7 @@ from .connectors.aerospike import AerospikeConnector
 from .connectors.mongodb import MongodbConnector
 from .connectors.local import LocalConnector
 import logging
+from uuid import uuid4
 
 
 class LinkQueue(Queue):
@@ -45,22 +46,25 @@ class Link:
     ##########################################################################
 
     def __init__(self, log_level='INFO'):
-        if log_level == 'NOTSET':
-            log_level = logging.NOTSET
-        elif log_level == 'DEBUG':
-            log_level = logging.DEBUG
-        elif log_level == 'INFO':
-            log_level = logging.INFO
-        elif log_level == 'WARNING':
-            log_level = logging.WARNING
-        elif log_level == 'ERROR':
-            log_level = logging.ERROR
-        elif log_level == 'CRITICAL':
-            log_level = logging.CRITICAL
+        log_level =  self._get_log_level(log_level)
         logging.getLogger().setLevel(log_level)
         logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s',
                             datefmt='%Y-%m-%d %H:%M:%S')
         self._load_args()
+
+    def _get_log_level(self, log_level_tag):
+        if log_level_tag == 'NOTSET':
+            return logging.NOTSET
+        elif log_level_tag == 'DEBUG':
+            return logging.DEBUG
+        elif log_level_tag == 'INFO':
+            return logging.INFO
+        elif log_level_tag == 'WARNING':
+            return logging.WARNING
+        elif log_level_tag == 'ERROR':
+            return logging.ERROR
+        elif log_level_tag == 'CRITICAL':
+            return logging.CRITICAL
 
     def _execute_kafka_consumer_commit_callback(self,
         kafka_consumer_commit_callback,
@@ -124,7 +128,7 @@ class Link:
 
         running = True
         while running:
-            queue_item = self.queue.get()
+            queue_item = self._messages_queue.get()
 
             transform_callback = None
             transform_callback_args = None
@@ -151,16 +155,19 @@ class Link:
                             kafka_consumer_commit_callback_kwargs = queue_item[2]
                     queue_item = queue_item[0]
 
-                try:
-                    electron = pickle.loads(queue_item.value())
-                except Exception:
+                if type(queue_item.value()) == Electron:
+                    electron = queue_item.value()
+                elif type(queue_item.value()) == bytes:
                     try:
-                        electron = \
-                            Electron(queue_item.key(),
-                                     queue_item.value().decode('utf-8'))
+                        electron = Electron(queue_item.key(),
+                                            queue_item.value().decode('utf-8'))
                     except Exception:
-                        util.print_exception(self, 'Unsupported serialization.')
-                        continue
+                        try:
+                            electron = pickle.loads(queue_item.value())
+                            if type(electron) != Electron:
+                                electron = Electron(queue_item.key(), electron)
+                        except Exception:
+                            electron = Electron(queue_item.key(), queue_item.value())
 
                 # Clean the previous topic
                 electron.previous_topic = electron.topic
@@ -295,7 +302,7 @@ class Link:
             })
 
         consumer = Consumer(properties)
-        logging.info(f'{self.__class__.__name__}: consumer group - {self.consumer_group}')
+        logging.info(f'{self.__class__.__name__} consumer group: {self.consumer_group}')
         running = True
         prev_queued_messages = 0
         while running:
@@ -325,7 +332,7 @@ class Link:
 
                         message = consumer.poll()
 
-                        if not message.key() and not message.value():
+                        if not message or (not message.key() and not message.value()):
                             if not self._break_consumer_loop:
                                 continue
                             # New topic / restart if there are more topics or
@@ -344,12 +351,12 @@ class Link:
                             # Synchronous commit
                             if self.synchronous:
                                 # Commit when the transformation is commited
-                                self.queue.put((message, consumer.commit, {'message': message, 'asynchronous': False}))
+                                self._messages_queue.put((message, consumer.commit, {'message': message, 'asynchronous': False}))
                                 continue
 
                             # Asynchronous (only one topic)
                             if len(subscription) == 1 or self.mki_mode == 'parity':
-                                self.queue.put(message)
+                                self._messages_queue.put(message)
                                 continue
 
                             # Asynchronous (with penalizations support for
@@ -360,18 +367,18 @@ class Link:
                             message_buffer.append(message)
                             current_queued_messages = len(message_buffer)
 
-                            self.queue.messages_left = \
-                                self.queue.messages_left - 1
+                            self._messages_queue.messages_left = \
+                                self._messages_queue.messages_left - 1
 
                             # If there is only one message left, the offset is
                             # committed
-                            if self.queue.messages_left < 1:
+                            if self._messages_queue.messages_left < 1:
                                 for message in message_buffer:
-                                    self.queue.put(message)
+                                    self._messages_queue.put(message)
                                 message_buffer = []
 
-                                self.queue.messages_left = \
-                                    self.queue.minimum_messages
+                                self._messages_queue.messages_left = \
+                                    self._messages_queue.minimum_messages
 
                             # Penalize if only one message was consumed
                             if not self._break_consumer_loop \
@@ -384,7 +391,7 @@ class Link:
 
                     # Dump the buffer before changing the subscription
                     for message in message_buffer:
-                        self.queue.put(message)
+                        self._messages_queue.put(message)
 
                 except Exception as e:
                     util.print_exception(self, "Kafka consumer error. Exiting...")
@@ -419,7 +426,7 @@ class Link:
         pass
 
     def send(self, electron):
-        self.queue.put(electron)
+        self._messages_queue.put(electron)
 
     def generator(self):
         """ If the generator method was not overrided in the main script an
@@ -466,13 +473,17 @@ class Link:
               consumer_group=None,
               asynchronous=True,
               synchronous=None,
-              consumer_timeout=20000):
+              consumer_timeout=20000,
+              random_consumer_group=False):
         self.link_mode = link_mode
         self.mki_mode = mki_mode
-        if not consumer_group:
-            self.consumer_group = self.__class__.__name__
-        else:
+
+        if random_consumer_group:
+            self.consumer_group = str(uuid4())
+        elif consumer_group:
             self.consumer_group = consumer_group
+        else:
+            self.consumer_group = self.__class__.__name__
 
         self.asynchronous = asynchronous
         if synchronous:
@@ -486,7 +497,7 @@ class Link:
 
         self.consumer_timeout = consumer_timeout
 
-        self.queue = LinkQueue()
+        self._messages_queue = LinkQueue()
 
         self.common_properties = {
             'bootstrap.servers': self.kafka_host_port,
@@ -602,7 +613,7 @@ class Link:
     def load_object(self, object_name):
         try:
             if self.resources_location == 'aerospike':
-                obj = self.aerospike.get_and_close(
+                _, obj = self.aerospike.get_and_close(
                     object_name,
                     self.aerospike_resources_namespace,
                     self.aerospike_resources_set

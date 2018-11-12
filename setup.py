@@ -7,7 +7,7 @@ import catenae
 
 setup(name='catenae',
       version=catenae.__version__,
-      description='Easily process unbounded streams of data with Python',
+      description='Python library for easy development of scalable stream processing topologies.',
       url='https://github.com/catenae',
       author='Rodrigo Martínez',
       author_email='dev@brunneis.com',
@@ -15,7 +15,7 @@ setup(name='catenae',
       packages=find_packages(),
       zip_safe=False,
       classifiers=[
-        "Development Status :: 3 - Alpha",
+        "Development Status :: 4 - Beta",
         "Environment :: Console",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
