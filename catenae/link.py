@@ -111,6 +111,7 @@ class Link:
             properties = self.common_properties
             properties.update({
                 'partition.assignment.strategy': 'roundrobin',
+                'message.max.bytes': 5242880,
                 'retries': 3,
                 'queue.buffering.max.ms': 1000,
                 'batch.num.messages': 100
@@ -287,6 +288,7 @@ class Link:
         # Kafka Consumer
         properties = self.common_properties
         properties.update({
+            'fetch.message.max.bytes': 5242880, # 10MiB
             'group.id': self.consumer_group,
             'session.timeout.ms': self.consumer_timeout,
             'default.topic.config': {
