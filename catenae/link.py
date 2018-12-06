@@ -428,6 +428,7 @@ class Link:
         pass
 
     def send(self, electron):
+        electron = electron.copy()
         self._messages_queue.put(electron)
 
     def generator(self):

@@ -6,4 +6,4 @@ from .link import *
 from .data_structs import *
 from . import util
 
-__version__ = '0.1.2'
+__version__ = '0.1.3'
