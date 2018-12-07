@@ -10,8 +10,6 @@ services:
 
   kafka:
     image: catenae/kafka
-    volumes:
-      - ./kafka/config/server.properties:/opt/kafka/default/config/server.properties:ro
     logging: *default-logging
 
   source_link:
