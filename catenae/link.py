@@ -108,21 +108,23 @@ class Link:
             # request can be sent to the broker at a time, guaranteeing the
             # order if retries is enabled.
 
-            properties = self.common_properties
+            properties = dict(self.common_properties)
             properties.update({
                 'partition.assignment.strategy': 'roundrobin',
-                'message.max.bytes': 5242880,
-                'retries': 3,
-                'queue.buffering.max.ms': 1000,
-                'batch.num.messages': 100
+                'message.max.bytes': 5242880, # 5MiB
+                'socket.send.buffer.bytes': 0, # System default
+                'request.required.acks': 1, # ACK from the leader
+                'message.send.max.retries': 5,
+                'queue.buffering.max.ms': 1,
+                'batch.num.messages': 1
             })
 
             if self.synchronous:
                 properties.update({
-                    'retries': 5,
+                    'message.send.max.retries': 1000,
+                    'request.required.acks': -1, # ACKs from all replicas
                     'max.in.flight.requests.per.connection': 1,
-                    'queue.buffering.max.ms': 1,
-                    'batch.num.messages': 1
+                    # 'enable.idempotence': True,
                 })
 
             self.producer = Producer(properties)
@@ -216,7 +218,7 @@ class Link:
                         if type(electron.key) == str:
                             partition_key = electron.key.encode('utf-8')
                         else:
-                            partition_key = pickle.dumps(electron.key)
+                            partition_key = pickle.dumps(electron.key, protocol=4)
 
                     # If the destiny topic is not specified, the first is used
                     if not electron.topic:
@@ -224,7 +226,7 @@ class Link:
                             util.print_error(self, "Electron / default output topic unset. Exiting...", fatal=True)
                         electron.topic = self.output_topics[0]
 
-                    # Electrons are serialized with pickle
+                    # Electrons are serialized
                     serialized_electron = pickle.dumps(electron, protocol=4)
 
                     try:
@@ -286,13 +288,15 @@ class Link:
             self.input_topic_assignments[self.input_topics[0]] = -1
 
         # Kafka Consumer
-        properties = self.common_properties
+        properties = dict(self.common_properties)
         properties.update({
-            'fetch.message.max.bytes': 5242880, # 10MiB
+            'max.partition.fetch.bytes': 5242880, # 5MiB,
+            'metadata.max.age.ms': 10000,
+            'socket.receive.buffer.bytes': 0, # System default
             'group.id': self.consumer_group,
             'session.timeout.ms': self.consumer_timeout,
             'default.topic.config': {
-                'auto.offset.reset': 'smallest',
+                'auto.offset.reset': 'smallest'
             }
         })
 

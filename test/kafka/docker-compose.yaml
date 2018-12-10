@@ -35,7 +35,7 @@ services:
 
   middle_link_async_2:
     image: catenae/link:test
-    command: middle_link_async.py -i input1 -o input3 -b kafka:9092
+    command: middle_link_async.py -i input1,input2 -o input3 -b kafka:9092
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka

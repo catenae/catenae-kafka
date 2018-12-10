@@ -4,12 +4,19 @@
 from catenae import Link, Electron, util
 import logging
 import random
+import time
+
 
 class MiddleLinkAsync(Link):
+
     def setup(self):
         logging.debug(f'{self.__class__.__name__} -> setup()')
         logging.debug(f'{self.__class__.__name__} -> input_topics: {self.input_topics}')
         logging.debug(f'{self.__class__.__name__} -> output_topics: {self.output_topics}')
+        
+        wait = random.randint(10,30)
+        logging.debug(f'{self.__class__.__name__} -> Waiting {wait} seconds...')
+        time.sleep(wait)
 
     def transform(self, electron):
         logging.debug(f'{self.__class__.__name__} -> transform()')
