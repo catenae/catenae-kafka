@@ -102,7 +102,8 @@ class Link:
             # batch.num.messages - the maximum number of messages that will
             # go in a single produce request to the broker.
 
-            # retries - the client resent the record upon receiving the error.
+            # message.send.max.retries - the client resent the record upon 
+            # receiving the error.
 
             # max.in.flight.requests.per.connection - if set to 1, only one
             # request can be sent to the broker at a time, guaranteeing the
@@ -114,17 +115,19 @@ class Link:
                 'message.max.bytes': 5242880, # 5MiB
                 'socket.send.buffer.bytes': 0, # System default
                 'request.required.acks': 1, # ACK from the leader
-                'message.send.max.retries': 5,
+                'message.send.max.retries': 10,
                 'queue.buffering.max.ms': 1,
+                'max.in.flight.requests.per.connection': 1,
                 'batch.num.messages': 1
             })
 
             if self.synchronous:
                 properties.update({
-                    'message.send.max.retries': 1000,
+                    'message.send.max.retries': 10000000, # Max value
                     'request.required.acks': -1, # ACKs from all replicas
                     'max.in.flight.requests.per.connection': 1,
-                    # 'enable.idempotence': True,
+                    'batch.num.messages': 1,
+                    # 'enable.idempotence': True, # not supported yet
                 })
 
             self.producer = Producer(properties)
@@ -295,16 +298,18 @@ class Link:
             'socket.receive.buffer.bytes': 0, # System default
             'group.id': self.consumer_group,
             'session.timeout.ms': self.consumer_timeout,
+            'enable.auto.commit': True,
+            'auto.commit.interval.ms': 5000,
             'default.topic.config': {
                 'auto.offset.reset': 'smallest'
             }
         })
 
-        # Asynchronous mode (default)
-        if self.asynchronous:
+        # Synchronous mode
+        if self.synchronous:
             properties.update({
-                'enable.auto.commit': True,
-                'auto.commit.interval.ms': 5000
+                'enable.auto.commit': False,
+                'auto.commit.interval.ms': 0
             })
 
         consumer = Consumer(properties)
