@@ -10,7 +10,7 @@ from queue import Queue
 from confluent_kafka import Producer, Consumer, KafkaError
 import time
 from .electron import Electron
-from . import util
+from . import utils
 import argparse
 from .connectors.aerospike import AerospikeConnector
 from .connectors.mongodb import MongodbConnector
@@ -75,7 +75,7 @@ class Link:
         kafka_consumer_commit_callback_attempts = 0
         while not kafka_consumer_commit_callback_done:
             if kafka_consumer_commit_callback_attempts == 15:
-                util.print_error(self, 'Cannot commit a message. Exiting...', fatal=True)
+                utils.print_error(self, 'Cannot commit a message. Exiting...', fatal=True)
             try:
                 if kafka_consumer_commit_callback_kwargs:
                     kafka_consumer_commit_callback(**kafka_consumer_commit_callback_kwargs)
@@ -88,7 +88,7 @@ class Link:
                 logging.error(f'Trying to commit a message ({kafka_consumer_commit_callback_attempts})...')
                 logging.error(str(e))
                 if 'UNKNOWN_MEMBER_ID' in str(e):
-                    util.print_error(self, 'Cannot commit a message (timeout). Exiting...', fatal=True)
+                    utils.print_error(self, 'Cannot commit a message (timeout). Exiting...', fatal=True)
                 kafka_consumer_commit_callback_attempts += 1
                 time.sleep(2)
 
@@ -184,7 +184,7 @@ class Link:
                 try:
                     transform_result = self.transform(electron)
                 except Exception:
-                    util.print_exception(
+                    utils.print_exception(
                         self,
                         'Exception during the execution of "transform". Exiting...',
                         fatal=True)
@@ -226,7 +226,7 @@ class Link:
                     # If the destiny topic is not specified, the first is used
                     if not electron.topic:
                         if not self.output_topics:
-                            util.print_error(self, "Electron / default output topic unset. Exiting...", fatal=True)
+                            utils.print_error(self, "Electron / default output topic unset. Exiting...", fatal=True)
                         electron.topic = self.output_topics[0]
 
                     # Electrons are serialized
@@ -249,7 +249,7 @@ class Link:
                             self.producer.flush()
 
                     except Exception:
-                        util.print_exception(self, "Kafka producer error. Exiting...", fatal=True)
+                        utils.print_exception(self, "Kafka producer error. Exiting...", fatal=True)
 
             # Synchronous
             if self.synchronous:
@@ -326,14 +326,14 @@ class Link:
                 elif self.mki_mode == 'parity':
                     subscription = list(self.input_topics)
                 else:
-                    util.print_error(self, 'Unknown priority mode', fatal=True)
+                    utils.print_error(self, 'Unknown priority mode', fatal=True)
 
                 # Replaces the current subscription
                 consumer.subscribe(subscription)
                 logging.info(f'{self.__class__.__name__} listening on: {subscription}')
 
                 try:
-                    start_time = util.get_current_timestamp()
+                    start_time = utils.get_timestamp_ms()
                     assigned_time = self.input_topic_assignments[topic]
                     while assigned_time == -1 or Link.in_time(start_time, assigned_time):
                         # Subscribe to the topics again if input topics have changed
@@ -357,7 +357,7 @@ class Link:
                                 continue
 
                             elif message.error():
-                                util.print_error(self, str(message.error()))
+                                utils.print_error(self, str(message.error()))
                         else:
                             # Synchronous commit
                             if self.synchronous:
@@ -405,11 +405,11 @@ class Link:
                         self._messages_queue.put(message)
 
                 except Exception as e:
-                    util.print_exception(self, "Kafka consumer error. Exiting...")
+                    utils.print_exception(self, "Kafka consumer error. Exiting...")
                     try:
                         consumer.close()
                     except Exception:
-                        util.print_exception(self, 'Exception when closing the consumer.', fatal=True)
+                        utils.print_exception(self, 'Exception when closing the consumer.', fatal=True)
 
         logging.info(f"{self.__class__.__name__}: stopped input.")
 
@@ -443,7 +443,7 @@ class Link:
     def generator(self):
         """ If the generator method was not overrided in the main script an
         error will be printed and the execution will finish """
-        util.print_error(self,
+        utils.print_error(self,
                          "Undefined \"generator\" method. Exiting...",
                          fatal=True)
 
@@ -461,7 +461,7 @@ class Link:
             kwargs.pop('target')
             target(**kwargs)
         except Exception:
-            util.print_exception(target, f"Exception during the execution of \"{target.__name__}\". Exiting...", fatal=True)
+            utils.print_exception(target, f"Exception during the execution of \"{target.__name__}\". Exiting...", fatal=True)
 
     def add_input_topic(self, input_topic):
         if input_topic not in self.input_topics:
@@ -539,7 +539,7 @@ class Link:
         try:
             self.setup()
         except Exception:
-            util.print_exception(self, "Exception during the execution of \"setup\". Exiting...", fatal=True)
+            utils.print_exception(self, "Exception during the execution of \"setup\". Exiting...", fatal=True)
 
         # Output
         output_kwargs, output_thread = self._get_output_thread()
@@ -620,7 +620,7 @@ class Link:
 
     @staticmethod
     def in_time(start_time, assigned_time):
-        return (start_time - util.get_current_timestamp()) < assigned_time
+        return (start_time - utils.get_timestamp_ms()) < assigned_time
 
     def load_object(self, object_name):
         try:
@@ -635,7 +635,7 @@ class Link:
                 lc = LocalConnector(self.local_resources_path)
                 return lc.get_object(object_name)
         except Exception:
-            util.print_exception(self,
+            utils.print_exception(self,
                 'Missing resources_location attribute. Exiting...', fatal=True)
 
     def _load_args(self):
