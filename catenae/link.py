@@ -66,6 +66,42 @@ class Link:
         elif log_level_tag == 'CRITICAL':
             return logging.CRITICAL
 
+    def _loop_task(self, target, args, kwargs, interval):
+        running = True
+        while(running):
+            logging.info(f"{self.__class__.__name__}: new loop iteration ({target.__name__})")
+            start_timestamp = utils.get_timestamp()
+            try:
+                if args:
+                    target(*args)
+                elif kwargs:
+                    target(**kwargs)
+                else:
+                    target()
+            except Exception:
+                logging.warn(f'Exception raised when executing the loop: {target.__name__}')
+                logging.exception('message')
+
+            sleep_seconds = interval - utils.get_timestamp() + start_timestamp
+            if sleep_seconds > 0:
+                time.sleep(sleep_seconds)
+
+    def loop(self, target, args=None, kwargs=None, interval=60, wait=False):
+        loop_task_kwargs = {'target': target,
+                            'args': args,
+                            'kwargs': kwargs,
+                            'interval': interval}
+        loop_thread = threading.Thread(target=self._loop_task, kwargs=loop_task_kwargs)
+        if wait:
+            time.sleep(interval)
+        loop_thread.start()
+        
+    def thread(self, target, args=None, kwargs=None):
+        raise NotImplementedError
+
+    def process(self, target, args=None, kwargs=None):
+        raise NotImplementedError    
+
     def _execute_kafka_consumer_commit_callback(self,
         kafka_consumer_commit_callback,
         kafka_consumer_commit_callback_kwargs,

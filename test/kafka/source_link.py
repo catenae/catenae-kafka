@@ -16,7 +16,7 @@ class SourceLink(Link):
     def generator(self):
 
         # If a key is assigned, all the messages with the same key will
-        # be assigned to the same partition, and thus, to the same consumer
+        # be assigned to the same partition and, thus, to the same consumer
         # within a consumer group. If the key is left empty, the messages
         # will be distributed in a round-robin fashion.
 
@@ -25,15 +25,20 @@ class SourceLink(Link):
             electron = Electron('source_key_1',
                                 f'source_value_{self.message_count}')
             self.send(electron)
+            logging.debug(f'{self.__class__.__name__} -> keyed message sent')
 
             electron = Electron('source_key_2',
                                 f'source_value_{self.message_count}')
             self.send(electron)
+            logging.debug(f'{self.__class__.__name__} -> keyed message sent')
 
-            logging.debug(f'{self.__class__.__name__} -> message sent')
-
+            electron = Electron(value=f'non_keyed_source_value_{self.message_count}')
+            self.send(electron)
+            logging.debug(f'{self.__class__.__name__} -> keyed message sent')
+            
             self.message_count += 1
             time.sleep(1)
+
 
 if __name__ == "__main__":
     SourceLink().start(link_mode=Link.CUSTOM_INPUT)
