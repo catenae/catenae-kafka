@@ -77,7 +77,12 @@ class MongodbConnector:
     def get_random(self, query=None, database_name=None, collection_name=None,
                    sort=None, limit=1):
         collection = self._get_collection(database_name, collection_name)
-        result = collection.aggregate([{'$sample': {'size': limit}}])
+        operation = [{'$sample': {'size': limit}}]
+        if query:
+            operation = [{'$match': query}] + operation
+        if sort:
+            operation = operation + [{'$sort': sort}]
+        result = collection.aggregate(operation)
         return result
 
     def update_one(self, query, value, database_name=None, collection_name=None):

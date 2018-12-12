@@ -2,13 +2,19 @@
 # -*- coding: utf-8 -*-
 
 from catenae.connectors.aerospike import AerospikeConnector
+import time
 
-
-aerospike = AerospikeConnector('aerospike',
-                               3000,
-                               default_namespace='catenae',
-                               default_set='catenae',
-                               connect=True)
+connected = False
+while(not connected):
+    try:
+        aerospike = AerospikeConnector('aerospike',
+                                       3000,
+                                       default_namespace='catenae',
+                                       default_set='catenae',
+                                       connect=True)
+        connected = True
+    except Exception:
+        time.sleep(1)
 
 # Open and close a connection
 aerospike.open_connection()

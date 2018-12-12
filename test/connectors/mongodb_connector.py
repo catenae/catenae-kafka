@@ -56,6 +56,8 @@ assert(result == expected_result)
 
 # Get random item
 assert(next(mongodb.get_random()))
+assert(next(mongodb.get_random(query={'attr1': 'value1'}, sort={'attr1': -1})))
+assert(next(mongodb.get_random(sort={'attr2': -1})))
 mongodb.remove(item)
 
 # Create index
