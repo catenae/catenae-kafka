@@ -440,7 +440,7 @@ class Link:
                     for message in message_buffer:
                         self._messages_queue.put(message)
 
-                except Exception as e:
+                except Exception:
                     utils.print_exception(self, "Kafka consumer error. Exiting...")
                     try:
                         consumer.close()
@@ -455,7 +455,6 @@ class Link:
         priority.
         """
         aggregated_value = .0
-        index_value = .0
 
         # The first element has the biggest value
         reverse_index = elements_no - index - 1
@@ -472,9 +471,24 @@ class Link:
         # Needed since the setup method can be left blank
         pass
 
-    def send(self, electron):
-        electron = electron.copy()
-        self._messages_queue.put(electron)
+    def send(self, output_content, topic=None):
+        if type(output_content) == Electron or type(output_content) == str:
+            if type(output_content) == Electron:
+                output_content = output_content.copy()
+            self._messages_queue.put(output_content)
+            return
+        elif type(output_content) == list:
+            for item in output_content:
+                if type(item) == Electron or type(item) == str:
+                    self._messages_queue.put(item)
+                    continue
+                self._messages_queue.put(Electron(value=item, topic=topic))
+                logging.debug(self.__class__.__name__ + \
+                f' Encapsuling output in an Electron instance (type: {type(item)})')
+            return
+        self._messages_queue.put(Electron(value=output_content, topic=topic))
+        logging.debug(self.__class__.__name__ + \
+        f' Encapsuling output in an Electron instance (type: {type(output_content)})')
 
     def generator(self):
         """ If the generator method was not overrided in the main script an

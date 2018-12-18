@@ -1,2 +1,2 @@
 #!/bin/bash
-docker push catenae/link:test
+docker push catenae/link:develop

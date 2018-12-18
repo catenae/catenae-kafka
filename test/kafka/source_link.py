@@ -35,6 +35,27 @@ class SourceLink(Link):
             electron = Electron(value=f'non_keyed_source_value_{self.message_count}')
             self.send(electron)
             logging.debug(f'{self.__class__.__name__} -> keyed message sent')
+
+            # Send directly a string which won't be encapsulated in an Electron internally by Catenae
+            # string = 'simple string'
+            # self.send(string)
+
+            # Send a list of strings in the same way
+            # self.send([string, string, string])
+
+            # Send directly any object without encapsuling it in an Electron instance
+            dict_ = {'dict_key': 'dict_value'}
+            self.send(dict_)
+
+            # Send a list of Electrons
+            electron = Electron(value=dict_)
+            self.send([electron, electron, electron])
+
+            # Send a list of non-electron objects
+            self.send([dict_, dict_, dict_])
+
+            # Again, but with a custom output topic
+            self.send(dict_, topic='input1')
             
             self.message_count += 1
             time.sleep(1)
