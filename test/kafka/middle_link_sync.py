@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from catenae import Link, Electron, util
+from catenae import Link, Electron
 import logging
 import random
 
@@ -58,5 +58,5 @@ class MiddleLinkSync(Link):
 
 if __name__ == "__main__":
     MiddleLinkSync(log_level='DEBUG').start(consumer_group='custom_group_2',
-                                            consumer_timeout=10000,
+                                            consumer_timeout=20000,
                                             synchronous=True)

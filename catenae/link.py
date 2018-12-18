@@ -201,15 +201,21 @@ class Link:
                     electron = queue_item.value()
                 elif type(queue_item.value()) == bytes:
                     try:
+                        # String
                         electron = Electron(queue_item.key(),
                                             queue_item.value().decode('utf-8'))
                     except Exception:
+                        # Other object
                         try:
                             electron = pickle.loads(queue_item.value())
                             if type(electron) != Electron:
                                 electron = Electron(queue_item.key(), electron)
                         except Exception:
                             electron = Electron(queue_item.key(), queue_item.value())
+                else:
+                    utils.print_error(self, 'Not supported type for ' + \
+                    f'{str(queue_item.value())} ({type(queue_item.value())})')
+                    continue
 
                 # Clean the previous topic
                 electron.previous_topic = electron.topic
@@ -245,9 +251,21 @@ class Link:
                 if electrons == None:
                     electrons = []
 
-                # If there is only one electron, convert it to a list
-                elif type(electrons) == Electron:
-                    electrons = [electrons]
+                # If there is only one item, convert it to a list
+                if type(electrons) != list:
+                    if type(electrons) == Electron:
+                        electrons = [electrons]
+                    else:
+                        electrons = Electron(value=electrons)
+                # Already a list
+                else:
+                    electrons_new = []
+                    for electron in electrons:
+                        if type(electron) == Electron:
+                            electrons_new.append(electron)
+                        else:
+                            electrons_new.append(Electron(value=electron, unpack_if_string=True))
+                    electrons = electrons_new
 
             if kafka_producer:
                 for electron in electrons:
@@ -266,7 +284,10 @@ class Link:
                         electron.topic = self.output_topics[0]
 
                     # Electrons are serialized
-                    serialized_electron = pickle.dumps(electron, protocol=4)
+                    if electron.unpack_if_string and type(electron.value) == str:
+                        serialized_electron = electron.value
+                    else:
+                        serialized_electron = pickle.dumps(electron, protocol=4)
 
                     try:
                         # If partition_key = None, the partition.assignment.strategy
@@ -310,7 +331,7 @@ class Link:
                         kafka_consumer_commit_callback_kwargs,
                         kafka_consumer_commit_callback_args)
 
-    def _break_consumer_loop(self):
+    def _break_consumer_loop(self, subscription):
         return len(subscription) > 1 and self.mki_mode != 'parity'
 
     def _kafka_consumer(self):
@@ -380,7 +401,7 @@ class Link:
                         message = consumer.poll()
 
                         if not message or (not message.key() and not message.value()):
-                            if not self._break_consumer_loop:
+                            if not self._break_consumer_loop(subscription):
                                 continue
                             # New topic / restart if there are more topics or
                             # there aren't assigned partitions
@@ -428,7 +449,7 @@ class Link:
                                     self._messages_queue.minimum_messages
 
                             # Penalize if only one message was consumed
-                            if not self._break_consumer_loop \
+                            if not self._break_consumer_loop(subscription) \
                             and current_queued_messages > 1 \
                             and current_queued_messages > prev_queued_messages - 2:
                                 logging.info(f"Penalized topic: {topic}")
@@ -472,23 +493,19 @@ class Link:
         pass
 
     def send(self, output_content, topic=None):
-        if type(output_content) == Electron or type(output_content) == str:
-            if type(output_content) == Electron:
-                output_content = output_content.copy()
+        if type(output_content) == Electron:
+            output_content = output_content.copy()
             self._messages_queue.put(output_content)
             return
-        elif type(output_content) == list:
+        if type(output_content != list):
+            self._messages_queue.put(Electron(value=output_content, topic=topic, unpack_if_string=True))
+            return
+        if type(output_content) == list:
             for item in output_content:
-                if type(item) == Electron or type(item) == str:
+                if type(item) == Electron:
                     self._messages_queue.put(item)
                     continue
-                self._messages_queue.put(Electron(value=item, topic=topic))
-                logging.debug(self.__class__.__name__ + \
-                f' Encapsuling output in an Electron instance (type: {type(item)})')
-            return
-        self._messages_queue.put(Electron(value=output_content, topic=topic))
-        logging.debug(self.__class__.__name__ + \
-        f' Encapsuling output in an Electron instance (type: {type(output_content)})')
+                self._messages_queue.put(Electron(value=item, topic=topic, unpack_if_string=True))
 
     def generator(self):
         """ If the generator method was not overrided in the main script an
@@ -682,8 +699,8 @@ class Link:
                 )
                 return obj
             elif self.resources_location == 'local':
-                lc = LocalConnector(self.local_resources_path)
-                return lc.get_object(object_name)
+                local_connector = LocalConnector(self.local_resources_path)
+                return local_connector.get_object(object_name)
         except Exception:
             utils.print_exception(self,
                 'Missing resources_location attribute. Exiting...', fatal=True)
