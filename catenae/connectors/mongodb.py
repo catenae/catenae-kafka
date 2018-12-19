@@ -69,6 +69,11 @@ class MongodbConnector:
     def get(self, query=None, database_name=None, collection_name=None, sort=None,
             limit=None):
         collection = self._get_collection(database_name, collection_name)
+        if limit == 1:
+            result = collection.find_one(query, sort=sort)
+            if result:
+                return iter([result])
+            return iter([])
         result = collection.find(query, sort=sort)
         if limit:
             result = result.limit(limit)
@@ -85,9 +90,6 @@ class MongodbConnector:
         result = collection.aggregate(operation)
         return result
 
-    def update_one(self, query, value, database_name=None, collection_name=None):
-        self.update(query, value, database_name, collection_name)
-
     def update(self, query, value, database_name=None, collection_name=None):
         collection = self._get_collection(database_name, collection_name)
         collection.update_one(query, {'$set': value}, upsert=True)
@@ -101,9 +103,6 @@ class MongodbConnector:
     def remove(self, query=None, database_name=None, collection_name=None):
         collection = self._get_collection(database_name, collection_name)
         collection.remove(query)
-
-    def insert_one(self, value, database_name=None, collection_name=None):
-        self.insert(value, database_name, collection_name)
 
     def insert(self, value, database_name=None, collection_name=None):
         collection = self._get_collection(database_name, collection_name)

@@ -23,7 +23,7 @@ if mongodb.exists(item):
 
 # Item does not exist
 assert(not mongodb.exists(item))
-result = mongodb.get(item)
+result = mongodb.get(item, limit=1)
 for result_item in result:
     assert(False)
 assert(mongodb.count() == 0)
@@ -31,7 +31,7 @@ assert(mongodb.count() == 0)
 # Item exists
 mongodb.put(item)
 assert(mongodb.exists(item))
-result = mongodb.get(item)
+result = mongodb.get(item, limit=1)
 result = next(result)
 result.pop('_id')
 assert(result == item)
@@ -47,7 +47,7 @@ for result_item in result:
 # Item exists with attributes
 mongodb.put(item, attributes)
 assert(mongodb.exists(item))
-result = mongodb.get(item)
+result = mongodb.get(item, limit=100)
 result = next(result)
 result.pop('_id')
 expected_result = item
