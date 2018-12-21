@@ -1,11 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from pymongo import (
-    MongoClient,
-    ASCENDING,
-    DESCENDING,
-)
+from pymongo import MongoClient
 
 
 class MongodbConnector:
@@ -60,28 +56,50 @@ class MongodbConnector:
     def create_index(self, attribute, database_name=None, collection_name=None,
                      unique=False, type_='asc'):
         if type_ == 'desc':
-            type_ = DESCENDING
+            type_ = -1
         else:
-            type_ = ASCENDING
+            type_ = 1
         collection = self._get_collection(database_name, collection_name)
         collection.create_index([(attribute, type_)], unique=unique, background=True)
 
     def get(self, query=None, database_name=None, collection_name=None, sort=None,
-            limit=None):
+            sort_attribute=None, sort_type=None, limit=None, index=None,
+            index_attribute=None, index_type=None):
         collection = self._get_collection(database_name, collection_name)
+        if sort_attribute and sort_type:
+            if sort_type == 'desc':
+                sort_type = -1
+            else:
+                sort_type = 1
+            sort = [(sort_attribute, sort_type)]
         if limit == 1:
             result = collection.find_one(query, sort=sort)
             if result:
                 return iter([result])
             return iter([])
         result = collection.find(query, sort=sort)
+        if index or (index_attribute and index_type):
+            if index:
+                result = result.hint(index)
+            else:
+                if index_type == 'desc':
+                    index_type = -1
+                else:
+                    index_type = 1
+                result = result.hint([(index_attribute, index_type)])
         if limit:
             result = result.limit(limit)
         return result
 
     def get_random(self, query=None, database_name=None, collection_name=None,
-                   sort=None, limit=1):
+                   sort=None, sort_attribute=None, sort_type=None, limit=1):
         collection = self._get_collection(database_name, collection_name)
+        if sort_attribute and sort_type:
+            if sort_type == 'desc':
+                sort_type = -1
+            else:
+                sort_type = 1
+            sort = [(sort_attribute, sort_type)]
         operation = [{'$sample': {'size': limit}}]
         if query:
             operation = [{'$match': query}] + operation

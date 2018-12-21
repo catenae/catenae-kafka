@@ -17,6 +17,9 @@ mongodb.close_connection()
 item = {'identifier': 'id1'}
 attributes = {'attr1': 'value1', 'attr2': 'value2'}
 
+# Create index
+mongodb.create_index('attr1', type_='desc')
+
 # Remove item if it exists
 if mongodb.exists(item):
     mongodb.remove(item)
@@ -47,7 +50,7 @@ for result_item in result:
 # Item exists with attributes
 mongodb.put(item, attributes)
 assert(mongodb.exists(item))
-result = mongodb.get(item, limit=100)
+result = mongodb.get(item, limit=100, index_attribute='attr1', index_type='desc')
 result = next(result)
 result.pop('_id')
 expected_result = item
@@ -59,8 +62,5 @@ assert(next(mongodb.get_random()))
 assert(next(mongodb.get_random(query={'attr1': 'value1'}, sort={'attr1': -1})))
 assert(next(mongodb.get_random(sort={'attr2': -1})))
 mongodb.remove(item)
-
-# Create index
-mongodb.create_index('attr1')
 
 print('PASSED')
