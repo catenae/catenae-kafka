@@ -19,6 +19,7 @@ attributes = {'attr1': 'value1', 'attr2': 'value2'}
 
 # Create index
 mongodb.create_index('attr1', type_='desc')
+mongodb.create_index(keys=[('attr1', 1)], background=False)
 
 # Remove item if it exists
 if mongodb.exists(item):
@@ -50,7 +51,15 @@ for result_item in result:
 # Item exists with attributes
 mongodb.put(item, attributes)
 assert(mongodb.exists(item))
+
 result = mongodb.get(item, limit=100, index_attribute='attr1', index_type='desc')
+result = next(result)
+result.pop('_id')
+expected_result = item
+expected_result.update(attributes)
+assert(result == expected_result)
+
+result = mongodb.get(item, index_attribute='attr1', index_type='asc')
 result = next(result)
 result.pop('_id')
 expected_result = item

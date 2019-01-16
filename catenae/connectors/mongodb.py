@@ -53,14 +53,18 @@ class MongodbConnector:
             return False
         return True
 
-    def create_index(self, attribute, database_name=None, collection_name=None,
-                     unique=False, type_='asc'):
-        if type_ == 'desc':
-            type_ = -1
-        else:
-            type_ = 1
+    def create_index(self, attribute=None, keys=None, database_name=None, collection_name=None,
+                     unique=False, type_='asc', background=True):
+        if not keys and not attribute:
+            raise TypeError
+        if not keys:
+            if type_ == 'desc':
+                type_ = -1
+            else:
+                type_ = 1
+            keys = [(attribute, type_)]
         collection = self._get_collection(database_name, collection_name)
-        collection.create_index([(attribute, type_)], unique=unique, background=True)
+        collection.create_index(keys, unique=unique, background=background)
 
     def get(self, query=None, database_name=None, collection_name=None, sort=None,
             sort_attribute=None, sort_type=None, limit=None, index=None,
