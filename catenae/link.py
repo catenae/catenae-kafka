@@ -73,22 +73,20 @@ class Link:
             try:
                 logging.info(f"{self.__class__.__name__}: new loop iteration ({target.__name__})")
                 start_timestamp = utils.get_timestamp()
-                try:
-                    if args:
-                        target(*args)
-                    elif kwargs:
-                        target(**kwargs)
-                    else:
-                        target()
-                except Exception:
-                    logging.warn(f'Exception raised when executing the loop: {target.__name__}')
-                    logging.exception('')
+
+                if args:
+                    target(*args)
+                elif kwargs:
+                    target(**kwargs)
+                else:
+                    target()
 
                 sleep_seconds = interval - utils.get_timestamp() + start_timestamp
                 if sleep_seconds > 0:
                     time.sleep(sleep_seconds)
+                    
             except Exception:
-                logging.exception('')
+                logging.exception(f'Exception raised when executing the loop: {target.__name__}')
 
     def call(self, module, method, args=None, kwargs=None, instance=None):
         """ 
