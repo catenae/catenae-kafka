@@ -50,6 +50,7 @@ class Link:
         logging.getLogger().setLevel(log_level)
         logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s',
                             datefmt='%Y-%m-%d %H:%M:%S')
+        self.rpc_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
         self._load_args()
 
     def _get_log_level(self, log_level_tag):
@@ -69,22 +70,50 @@ class Link:
     def _loop_task(self, target, args, kwargs, interval):
         running = True
         while(running):
-            logging.info(f"{self.__class__.__name__}: new loop iteration ({target.__name__})")
-            start_timestamp = utils.get_timestamp()
             try:
-                if args:
-                    target(*args)
-                elif kwargs:
-                    target(**kwargs)
-                else:
-                    target()
-            except Exception:
-                logging.warn(f'Exception raised when executing the loop: {target.__name__}')
-                logging.exception('message')
+                logging.info(f"{self.__class__.__name__}: new loop iteration ({target.__name__})")
+                start_timestamp = utils.get_timestamp()
+                try:
+                    if args:
+                        target(*args)
+                    elif kwargs:
+                        target(**kwargs)
+                    else:
+                        target()
+                except Exception:
+                    logging.warn(f'Exception raised when executing the loop: {target.__name__}')
+                    logging.exception('')
 
-            sleep_seconds = interval - utils.get_timestamp() + start_timestamp
-            if sleep_seconds > 0:
-                time.sleep(sleep_seconds)
+                sleep_seconds = interval - utils.get_timestamp() + start_timestamp
+                if sleep_seconds > 0:
+                    time.sleep(sleep_seconds)
+            except Exception:
+                logging.exception('')
+
+    def call(self, module, method, args=None, kwargs=None, instance=None):
+        """ 
+        Send a Kafka message which will be interpreted as a RPC call by the receiver module
+        """
+        electron = Electron(value={'method': method,
+                                   'args': args,
+                                   'kwargs': kwargs,
+                                   'instance': instance},
+                            topic=f'catenae_rpc_{module.lower()}')
+        self.send(electron)
+
+    def _rpc_call(self, method, args=None, kwargs=None):
+        """
+        Local invocation of a RPC call coming from another module
+        """
+        try:
+            if args:
+                method(*args)
+            elif kwargs:
+                method(**kwargs)
+            else:
+                method()
+        except Exception:
+            logging.exception('Exception raised while executing a RPC call:')
 
     def loop(self, target, args=None, kwargs=None, interval=60, wait=False):
         loop_task_kwargs = {'target': target,
@@ -121,8 +150,7 @@ class Link:
                     kafka_consumer_commit_callback()
                 kafka_consumer_commit_callback_done = True
             except Exception as e:
-                logging.error(f'Trying to commit a message ({kafka_consumer_commit_callback_attempts})...')
-                logging.error(str(e))
+                logging.exception(f'Trying to commit a message ({kafka_consumer_commit_callback_attempts})...')
                 if 'UNKNOWN_MEMBER_ID' in str(e):
                     utils.print_error(self, 'Cannot commit a message (timeout). Exiting...', fatal=True)
                 kafka_consumer_commit_callback_attempts += 1
@@ -148,7 +176,7 @@ class Link:
             properties = dict(self.common_properties)
             properties.update({
                 'partition.assignment.strategy': 'roundrobin',
-                'message.max.bytes': 5242880, # 5MiB
+                'message.max.bytes': 20971520, # 20MiB
                 'socket.send.buffer.bytes': 0, # System default
                 'request.required.acks': 1, # ACK from the leader
                 'message.send.max.retries': 10,
@@ -224,12 +252,24 @@ class Link:
                 # The destiny topic will be overwritten if desired in the
                 # transform method (default, first output topic)
                 try:
-                    transform_result = self.transform(electron)
+                    if electron.previous_topic == self.rpc_topic:
+                        # The instance is not provided or matches the UUID that was
+                        # used as consumer group
+                        if not electron['value']['instance'] or \
+                        electron['value']['instance'] == self.consumer_group:
+                            self._rpc_call(electron.value['method'],
+                                           args=electron.value['args'],
+                                           kwargs=electron.value['kwargs'])
+                        else:
+                            logging.error(f"Invalid RPC invocation: {electron['value']}")
+                        # Skip the following standard process
+                        continue
+                    else:
+                        transform_result = self.transform(electron)
                 except Exception:
                     utils.print_exception(
                         self,
-                        'Exception during the execution of "transform". Exiting...',
-                        fatal=True)
+                        'Exception during the execution of "transform"')
 
                 if type(transform_result) == tuple:
                     electrons = transform_result[0]
@@ -350,7 +390,7 @@ class Link:
         # Kafka Consumer
         properties = dict(self.common_properties)
         properties.update({
-            'max.partition.fetch.bytes': 5242880, # 5MiB,
+            'max.partition.fetch.bytes': 20971520, # 20MiB,
             'metadata.max.age.ms': 10000,
             'socket.receive.buffer.bytes': 0, # System default
             'group.id': self.consumer_group,
@@ -493,19 +533,22 @@ class Link:
         pass
 
     def send(self, output_content, topic=None):
-        if type(output_content) == Electron:
-            output_content = output_content.copy()
-            self._messages_queue.put(output_content)
-            return
-        if type(output_content != list):
-            self._messages_queue.put(Electron(value=output_content, topic=topic, unpack_if_string=True))
-            return
-        if type(output_content) == list:
-            for item in output_content:
-                if type(item) == Electron:
-                    self._messages_queue.put(item)
-                    continue
-                self._messages_queue.put(Electron(value=item, topic=topic, unpack_if_string=True))
+        try:
+            if type(output_content) == Electron:
+                output_content = output_content.copy()
+                self._messages_queue.put(output_content)
+                return
+            if type(output_content != list):
+                self._messages_queue.put(Electron(value=output_content, topic=topic, unpack_if_string=True))
+                return
+            if type(output_content) == list:
+                for item in output_content:
+                    if type(item) == Electron:
+                        self._messages_queue.put(item)
+                        continue
+                    self._messages_queue.put(Electron(value=item, topic=topic, unpack_if_string=True))
+        except Exception:
+            logging.exception('')
 
     def generator(self):
         """ If the generator method was not overrided in the main script an
@@ -775,14 +818,17 @@ class Link:
         if args.input_topics:
             self.input_topics = args.input_topics.split(',')
         else:
-            self.input_topics = None
+            self.input_topics = []
+
+        # Add the default topic for RPC invocations
+        self.input_topics.append(self.rpc_topic)
 
         # Output topics
         if args.output_topics:
             self.output_topics = args.output_topics.split(',')
 
         else:
-            self.output_topics = None
+            self.output_topics = []
 
         self.kafka_host_port = args.kafka_host_port
 
