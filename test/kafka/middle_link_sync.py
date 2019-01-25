@@ -39,7 +39,7 @@ class MiddleLinkSync(Link):
                 self.remove_input_topic("input2")
                 logging.debug(f'{self.__class__.__name__} -> INPUT CHANGED {self.input_topics}')
 
-        option = random.randint(0,6)
+        option = random.randint(0,7)
         if option == 0:
             return electron
         elif option == 1:
@@ -54,6 +54,9 @@ class MiddleLinkSync(Link):
             return electron, self.instance_callback_args, ['instance_arg_val1', 'instance_arg_val2']
         elif option == 6:
             return electron, self.instance_callback_args, {'arg1': 'instance_kwarg_val1', 'arg2': 'instance_kwarg_val2'}
+        elif option == 7:
+            logging.debug(f'{self.__class__.__name__} -> RPC invocation (MiddleLinkAsync links)')
+            self.rpc_call('MiddleLinkAsync', 'remote_method', args=['Hi from MiddleLinkSync'])
 
 
 if __name__ == "__main__":

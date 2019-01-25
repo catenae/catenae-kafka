@@ -12,14 +12,14 @@ services:
     image: catenae/kafka
     logging: *default-logging
 
-  source_link:
+  source_link_1:
     image: catenae/link:develop
     command: source_link.py -o input1 -b kafka:9092
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka
 
-  source_link_3:
+  source_link_2:
     image: catenae/link:develop
     command: source_link.py -o input2 -b kafka:9092
     working_dir: /opt/catenae/test/kafka

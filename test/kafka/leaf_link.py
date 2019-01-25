@@ -16,7 +16,6 @@ class LeafLink(Link):
         logging.debug(f'{self.__class__.__name__} -> received key: {electron.key}, value: {electron.value}')
         logging.debug(f'{self.__class__.__name__} -> previous topic: {electron.previous_topic}')
 
-
 if __name__ == "__main__":
-    LeafLink().start(link_mode=Link.CUSTOM_OUTPUT,
-                     random_consumer_group=True)
+    LeafLink(log_level='DEBUG').start(link_mode=Link.CUSTOM_OUTPUT,
+                                      random_consumer_group=True)

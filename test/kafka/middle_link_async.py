@@ -11,7 +11,10 @@ class MiddleLinkAsync(Link):
 
     @staticmethod
     def dummy_log(message):
-        logging.info(f'{MiddleLinkAsync.__class__.__name__} -> {message}')
+        logging.info(f'MiddleLinkAsync -> {message}')
+
+    def remote_method(self, message):
+        logging.info(f'RPC invocation of remote_method(message): {message}')
 
     def setup(self):
         logging.debug(f'{self.__class__.__name__} -> setup()')
