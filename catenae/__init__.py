@@ -5,6 +5,13 @@ from .electron import *
 from .link import *
 from .utils import CircularOrderedDict, CircularOrderedSet
 from . import utils
+import logging
 
 
-__version__ = '0.1.2'
+__version__ = '0.1.3'
+
+logging.getLogger().setLevel(logging.INFO)
+logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S')
+
+logging.info(f'Catenae v{__version__}')

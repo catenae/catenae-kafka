@@ -31,43 +31,25 @@ class LinkQueue(Queue):
 
 
 class Link:
-    ########################## LINK EXECUTION MODES ##########################
+
     # Multiple kafka inputs
-    MULTIPLE_KAFKA_INPUTS = 'MKI'
+    MULTIPLE_KAFKA_INPUTS = 0
 
     # Custom output without multiple kafka inputs
-    CUSTOM_OUTPUT = 'CO'
+    CUSTOM_OUTPUT = 1
 
     # Custom input with multiple kafka inputs
-    MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT = 'MKICO'
+    MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT = 2
 
     # Custom input
-    CUSTOM_INPUT = 'CI'
-    ##########################################################################
+    CUSTOM_INPUT = 3
 
     def __init__(self, log_level='INFO'):
-        log_level =  self._get_log_level(log_level)
-        logging.getLogger().setLevel(log_level)
-        logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s',
-                            datefmt='%Y-%m-%d %H:%M:%S')
+        logging.getLogger().setLevel(getattr(logging, log_level))
         self.launched = False
         self.input_topics_lock = threading.Lock()
         self.rpc_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
         self._load_args()
-
-    def _get_log_level(self, log_level_tag):
-        if log_level_tag == 'NOTSET':
-            return logging.NOTSET
-        elif log_level_tag == 'DEBUG':
-            return logging.DEBUG
-        elif log_level_tag == 'INFO':
-            return logging.INFO
-        elif log_level_tag == 'WARNING':
-            return logging.WARNING
-        elif log_level_tag == 'ERROR':
-            return logging.ERROR
-        elif log_level_tag == 'CRITICAL':
-            return logging.CRITICAL
 
     def _loop_task(self, target, args, kwargs, interval):
         running = True
