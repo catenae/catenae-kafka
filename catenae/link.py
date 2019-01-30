@@ -50,6 +50,7 @@ class Link:
         logging.getLogger().setLevel(log_level)
         logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s',
                             datefmt='%Y-%m-%d %H:%M:%S')
+        self.launched = False
         self.input_topics_lock = threading.Lock()
         self.rpc_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
         self._load_args()
@@ -661,6 +662,11 @@ class Link:
               synchronous=None,
               consumer_timeout=20000,
               random_consumer_group=False):
+
+        if self.launched:
+            return
+        self.launched = True
+
         self.link_mode = link_mode
         self.mki_mode = mki_mode
 
