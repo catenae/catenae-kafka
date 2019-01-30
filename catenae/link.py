@@ -50,6 +50,7 @@ class Link:
         logging.getLogger().setLevel(log_level)
         logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s',
                             datefmt='%Y-%m-%d %H:%M:%S')
+        self.input_topics_lock = threading.Lock()
         self.rpc_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
         self._load_args()
 
@@ -488,9 +489,12 @@ class Link:
                     assigned_time = self.input_topic_assignments[topic]
                     while assigned_time == -1 or Link.in_time(start_time, assigned_time):
                         # Subscribe to the topics again if input topics have changed
+                        self.input_topics_lock.acquire()
                         if self.changed_input_topics:
                             self.changed_input_topics = False
+                            self.input_topics_lock.release()
                             break
+                        self.input_topics_lock.release()
 
                         message = consumer.poll()
 
@@ -632,17 +636,21 @@ class Link:
     def add_input_topic(self, input_topic):
         if input_topic not in self.input_topics:
             self.input_topics.append(input_topic)
-            self.changed_input_topics = True
+            self.input_topics_lock.acquire()
             if self.mki_mode == 'exp':
                 self._set_input_topic_exp_assignments()
+            self.changed_input_topics = True
+            self.input_topics_lock.release()
             logging.info(self.__class__.__name__ + f' added input {input_topic}.')
 
     def remove_input_topic(self, input_topic):
         if input_topic in self.input_topics:
             self.input_topics.remove(input_topic)
-            self.changed_input_topics = True
+            self.input_topics_lock.acquire()
             if self.mki_mode == 'exp':
                 self._set_input_topic_exp_assignments()
+            self.changed_input_topics = True
+            self.input_topics_lock.release()
             logging.info(self.__class__.__name__ + f' removed input: {input_topic}.')
 
     def start(self,

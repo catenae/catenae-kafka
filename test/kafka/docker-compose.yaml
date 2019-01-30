@@ -40,6 +40,13 @@ services:
     depends_on:
       - kafka
 
+  middle_link_async_3:
+    image: catenae/link:develop
+    command: middle_link_async.py -o input3 -b kafka:9092
+    working_dir: /opt/catenae/test/kafka
+    depends_on:
+      - kafka
+
   middle_link_sync:
     image: catenae/link:develop
     command: middle_link_sync.py -i input1 -o input3 -b kafka:9092

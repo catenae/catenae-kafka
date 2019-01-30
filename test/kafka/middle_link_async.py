@@ -25,6 +25,8 @@ class MiddleLinkAsync(Link):
         time.sleep(6)
         self.loop(self.dummy_log, kwargs={'message': 'world'}, interval=5, wait=False)
 
+        self.add_input_topic('input1')
+
         wait = random.randint(10,30)
         logging.debug(f'{self.__class__.__name__} -> Waiting {wait} seconds...')
         time.sleep(wait)
