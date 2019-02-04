@@ -49,7 +49,7 @@ services:
 
   middle_link_sync:
     image: catenae/link:develop
-    command: middle_link_sync.py -i input1 -o input3 -b kafka:9092
+    command: middle_link_sync.py -i input1 -o input3 -b kafka:9092 -g argument_defined_consumer_group
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka

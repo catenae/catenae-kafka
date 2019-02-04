@@ -153,7 +153,7 @@ class Link:
         properties = dict(self.common_properties)
         properties.update({
             'partition.assignment.strategy': 'roundrobin',
-            'message.max.bytes': 20971520, # 20MiB
+            'message.max.bytes': 2097152, # 2MiB
             'socket.send.buffer.bytes': 0, # System default
             'request.required.acks': 1, # ACK from the leader
             'message.send.max.retries': 10,
@@ -428,7 +428,7 @@ class Link:
         # Kafka Consumer
         properties = dict(self.common_properties)
         properties.update({
-            'max.partition.fetch.bytes': 20971520, # 20MiB,
+            'max.partition.fetch.bytes': 2097152, # 2MiB,
             'metadata.max.age.ms': 10000,
             'socket.receive.buffer.bytes': 0, # System default
             'group.id': self.consumer_group,
@@ -652,12 +652,13 @@ class Link:
         self.link_mode = link_mode
         self.mki_mode = mki_mode
 
-        if random_consumer_group:
-            self.consumer_group = str(uuid4())
-        elif consumer_group:
-            self.consumer_group = consumer_group
-        else:
-            self.consumer_group = self.__class__.__name__
+        if not hasattr(self, 'consumer_group'):
+            if random_consumer_group:
+                self.consumer_group = str(uuid4())
+            elif consumer_group:
+                self.consumer_group = consumer_group
+            else:
+                self.consumer_group = self.__class__.__name__
 
         self.asynchronous = asynchronous
         if synchronous:
@@ -806,6 +807,15 @@ class Link:
                             + 'can be specified separated by commas.',
                             required=False)
 
+        # Kafka consumer group
+        parser.add_argument('-g',
+                            '--consumer-group',
+                            action="store",
+                            dest="consumer_group",
+                            help='Kafka consumer group. \
+                            E.g., "filter_group".',
+                            required=False)
+
         # Kafka bootstrap server
         parser.add_argument('-k',
                             '--kafka',
@@ -814,7 +824,7 @@ class Link:
                             action="store",
                             dest="kafka_host_port",
                             help='Kafka bootstrap server. \
-                            I.e., "localhost:9092".',
+                            E.g., "localhost:9092".',
                             required=True)
 
         # Aerospike bootstrap server
@@ -824,7 +834,7 @@ class Link:
                             action="store",
                             dest="aerospike_host_port",
                             help='Aerospike bootstrap server. \
-                            I.e., "localhost:3000".',
+                            E.g., "localhost:3000".',
                             required=False)
 
         # MongoDB server
@@ -833,7 +843,7 @@ class Link:
                             action="store",
                             dest="mongodb_host_port",
                             help='MongoDB server. \
-                            I.e., "localhost:27017".',
+                            E.g., "localhost:27017".',
                             required=False)
 
         # Aerospike path
@@ -843,7 +853,7 @@ class Link:
                             action="store",
                             dest="resources_location",
                             help='Path for setup resources. \
-                            I.e., "aerospike:namespace:set".',
+                            E.g., "aerospike:namespace:set".',
                             required=False)
 
         parsed_args = parser.parse_known_args()
@@ -863,9 +873,12 @@ class Link:
         # Output topics
         if args.output_topics:
             self.output_topics = args.output_topics.split(',')
-
         else:
             self.output_topics = []
+
+        # Consumer group
+        if args.consumer_group:
+            self.consumer_group = args.consumer_group
 
         self.kafka_host_port = args.kafka_host_port
 
