@@ -19,6 +19,3 @@ RUN \
     pip uninstall -y catenae \
     && cd /opt/catenae \
     && python setup.py install
-
-WORKDIR /opt/catenae/test
-ENTRYPOINT ["python"]
