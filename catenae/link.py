@@ -6,10 +6,11 @@ import threading
 import math
 import re
 import _pickle as pickle
-from queue import Queue
 from confluent_kafka import Producer, Consumer, KafkaError
 import time
 from .electron import Electron
+from .callback import Callback
+from .linkqueue import LinkQueue
 from . import utils
 import argparse
 from .connectors.aerospike import AerospikeConnector
@@ -17,17 +18,6 @@ from .connectors.mongodb import MongodbConnector
 from .connectors.local import LocalConnector
 import logging
 from uuid import uuid4
-
-
-class LinkQueue(Queue):
-    def __init__(self,
-                 minimum_messages=1,
-                 messages_left=None):
-        if messages_left is None:
-            messages_left = minimum_messages
-        self.minimum_messages = minimum_messages
-        self.messages_left = messages_left
-        super().__init__(maxsize=-1)
 
 
 class Link:
@@ -45,7 +35,9 @@ class Link:
     CUSTOM_INPUT = 3
 
     def __init__(self, log_level='INFO'):
+        log_level = log_level.upper()
         logging.getLogger().setLevel(getattr(logging, log_level))
+        logging.info(f'Log level: {log_level}')
         self.launched = False
         self.input_topics_lock = threading.Lock()
         self.rpc_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
@@ -119,32 +111,6 @@ class Link:
     def process(self, target, args=None, kwargs=None):
         raise NotImplementedError    
 
-    def _execute_kafka_consumer_commit_callback(self,
-        kafka_consumer_commit_callback,
-        kafka_consumer_commit_callback_kwargs,
-        kafka_consumer_commit_callback_args):
-
-        kafka_consumer_commit_callback_done = False
-        kafka_consumer_commit_callback_attempts = 0
-        while not kafka_consumer_commit_callback_done:
-            if kafka_consumer_commit_callback_attempts == 15:
-                utils.print_error(self, 'Cannot commit a message. Exiting...', fatal=True)
-            try:
-                if kafka_consumer_commit_callback_kwargs:
-                    kafka_consumer_commit_callback(**kafka_consumer_commit_callback_kwargs)
-                elif kafka_consumer_commit_callback_args:
-                    kafka_consumer_commit_callback(*kafka_consumer_commit_callback_args)
-                else:
-                    kafka_consumer_commit_callback()
-                kafka_consumer_commit_callback_done = True
-            except Exception as e:
-                if 'UNKNOWN_MEMBER_ID' in str(e):
-                    utils.print_error(self, 'Cannot commit a message (timeout). Exiting...', fatal=True)
-                logging.exception(f'Trying to commit a message ({kafka_consumer_commit_callback_attempts})...')
-                kafka_consumer_commit_callback_attempts += 1
-                time.sleep(2)
-
-
     def _kakfa_producer(self):
         """
         Send to the Kafka broker electrons coming from the send method of
@@ -156,6 +122,8 @@ class Link:
             'message.max.bytes': 2097152, # 2MiB
             'socket.send.buffer.bytes': 0, # System default
             'request.required.acks': 1, # ACK from the leader
+            # 'message.timeout.ms': 0, # (delivery.timeout.ms) Time a produced message waits for successful delivery
+            # 'request.timeout.ms': 30000,
             'message.send.max.retries': 10,
             'queue.buffering.max.ms': 1,
             'max.in.flight.requests.per.connection': 1,
@@ -187,10 +155,6 @@ class Link:
 
         self.producer = Producer(properties)
 
-        kafka_consumer_commit_callback = None
-        kafka_consumer_commit_callback_args = None
-        kafka_consumer_commit_callback_kwargs = None
-
         running = True
         while(running):
             electron = self._output_messages.get()
@@ -220,14 +184,15 @@ class Link:
             if electron.unpack_if_string and type(electron.value) == str:
                 serialized_electron = electron.value
             else:
-                serialized_electron = pickle.dumps(electron, protocol=4)
+                serialized_electron = pickle.dumps(electron.get_sendable(),
+                                                   protocol=4)
                     
             try:
                 # If partition_key = None, the partition.assignment.strategy
                 # is used to distribute the messages
                 self.producer.produce(topic=electron.topic,
-                                        key=partition_key,
-                                        value=serialized_electron)
+                                      key=partition_key,
+                                      value=serialized_electron)
 
                 # Asynchronous
                 if self.asynchronous:
@@ -238,17 +203,15 @@ class Link:
                     # Wait for all messages in the Producer queue to be delivered.
                     self.producer.flush()
 
+                logging.debug(f'Electron produced')
+
             except Exception:
                 utils.print_exception(self, "Kafka producer error. Exiting...", fatal=True)
 
             # Synchronous
-            # If the item comes from the Kafka consumer, intended for
-            # message commits
-            if self.synchronous and kafka_consumer_commit_callback:
-                self._execute_kafka_consumer_commit_callback(
-                    kafka_consumer_commit_callback,
-                    kafka_consumer_commit_callback_kwargs,
-                    kafka_consumer_commit_callback_args)
+            if self.synchronous:
+                for callback in electron.callbacks:
+                    callback.execute()
 
     def _transform_handler(self, kafka_producer=True):
         """
@@ -256,16 +219,13 @@ class Link:
         """
         running = True
         while running:
+            logging.debug('Waiting for a new electron to transform...')
 
-            transform_callback = None
-            transform_callback_args = None
-            transform_callback_kwargs = None
-
-            kafka_consumer_commit_callback = None
-            kafka_consumer_commit_callback_args = None
-            kafka_consumer_commit_callback_kwargs = None
+            transform_callback = Callback()
+            commit_kafka_message_callback = Callback(type_=Callback.COMMIT_KAFKA_MESSAGE)
 
             queue_item = self._received_messages.get()
+            logging.debug(f'Electron received')
 
             # An item from the _received_messages queue will not be of 
             # type Electron in any case. In the nearest scenario, the 
@@ -273,12 +233,12 @@ class Link:
 
             # Tuple
             if type(queue_item) == tuple:
-                kafka_consumer_commit_callback = queue_item[1]
+                commit_kafka_message_callback.target = queue_item[1]
                 if len(queue_item) > 2:
                     if type(queue_item[2]) == list:
-                        kafka_consumer_commit_callback_args = queue_item[2]
+                        commit_kafka_message_callback.args = queue_item[2]
                     elif type(queue_item[2]) == dict:
-                        kafka_consumer_commit_callback_kwargs = queue_item[2]
+                        commit_kafka_message_callback.kwargs = queue_item[2]
                 queue_item = queue_item[0]
 
             # Electron instance
@@ -329,18 +289,20 @@ class Link:
 
                 else:
                     transform_result = self.transform(electron)
-                    
+
+                    logging.debug(f'Electron transformed')
+
                     if type(transform_result) == tuple:
                         electrons = transform_result[0]
                         # Function to call if asynchronous mode is enabled after
                         # a message is correctly commited to a Kafka broker
                         if len(transform_result) > 1:
-                            transform_callback = transform_result[1]
+                            transform_callback.target = transform_result[1]
                             if len(transform_result) > 2:
                                 if type(transform_result[2]) == list:
-                                    transform_callback_args = transform_result[2]
+                                    transform_callback.args = transform_result[2]
                                 elif type(transform_result[2]) == dict:
-                                    transform_callback_kwargs = transform_result[2]
+                                    transform_callback.kwargs = transform_result[2]
                     else:
                         electrons = transform_result
 
@@ -372,38 +334,24 @@ class Link:
                     # work to the Kafka producer
 
                     if electrons and kafka_producer:
+                        # The callback will be executed only for the last 
+                        # electron if there are more than one
+                        electrons[-1].callbacks = []
+                        if commit_kafka_message_callback:
+                            electrons[-1].callbacks.append(commit_kafka_message_callback)
+                        if transform_callback:
+                            electrons[-1].callbacks.append(transform_callback)
+
                         for electron in electrons:
                             self._output_messages.put(electron)
                         continue
 
                     # If the synchronous mode is enabled, the input message
-                    # will be only commited if the returned by the transform
-                    # method is None or if the output is not managed by the 
-                    # Kafka producer
-
-                    # Synchronous
+                    # will be commited if the transform method returns None 
+                    # or if the output is not managed by the Kafka producer
                     if self.synchronous:
-                        # Optional micromodule callback after processing ONE item
-                        # in the transform method. If multiple seperated electrons
-                        # are returned, multiple messages will be send but the callback
-                        # method will be called only once if all the messages were
-                        # sent correctly.
-                        if transform_callback:
-                            if transform_callback_kwargs:
-                                transform_callback(**transform_callback_kwargs)
-                            elif transform_callback_args:
-                                transform_callback(*transform_callback_args)
-                            else:
-                                transform_callback()
-                                
-                        # If the item comes from the Kafka consumer, intended for
-                        # message commits
-                        if kafka_consumer_commit_callback:
-                            self._execute_kafka_consumer_commit_callback(
-                                kafka_consumer_commit_callback,
-                                kafka_consumer_commit_callback_kwargs,
-                                kafka_consumer_commit_callback_args)
-
+                        commit_kafka_message_callback.execute()
+                    
             except Exception:
                 utils.print_exception(
                     self,
@@ -411,6 +359,22 @@ class Link:
 
     def _break_consumer_loop(self, subscription):
         return len(subscription) > 1 and self.mki_mode != 'parity'
+
+    def _commit_kafka_message(self, message):
+        commited = False
+        attempts = 0
+        logging.debug(f'Trying to commit the message with value {message.value()} (attempt {attempts})')
+        while not commited:
+            if attempts > 1:
+                logging.warn(f'Trying to commit the message with value {message.value()} (attempt {attempts})')
+            try:
+                self.consumer.commit(**{'message': message, 'asynchronous': False})
+            except Exception:
+                logging.exception(f'Exception when trying to commit the message with value {message.value()}')
+                continue
+            commited = True
+            attempts += 1
+        logging.debug(f'Message with value {message.value()} commited')
 
     def _kafka_consumer(self):
         # Since the list
@@ -447,7 +411,7 @@ class Link:
                 'auto.commit.interval.ms': 0
             })
 
-        consumer = Consumer(properties)
+        self.consumer = Consumer(properties)
         logging.info(f'{self.__class__.__name__} consumer group: {self.consumer_group}')
         running = True
         prev_queued_messages = 0
@@ -464,7 +428,7 @@ class Link:
                     utils.print_error(self, 'Unknown priority mode', fatal=True)
 
                 # Replaces the current subscription
-                consumer.subscribe(subscription)
+                self.consumer.subscribe(subscription)
                 logging.info(f'{self.__class__.__name__} listening on: {subscription}')
 
                 try:
@@ -479,7 +443,7 @@ class Link:
                             break
                         self.input_topics_lock.release()
 
-                        message = consumer.poll()
+                        message = self.consumer.poll()
 
                         if not message or (not message.key() and not message.value()):
                             if not self._break_consumer_loop(subscription):
@@ -500,7 +464,7 @@ class Link:
                             # Synchronous commit
                             if self.synchronous:
                                 # Commit when the transformation is commited
-                                self._received_messages.put((message, consumer.commit, {'message': message, 'asynchronous': False}))
+                                self._received_messages.put((message, self._commit_kafka_message, [message]))
                                 continue
 
                             # Asynchronous (only one topic)
@@ -545,7 +509,7 @@ class Link:
                 except Exception:
                     utils.print_exception(self, "Kafka consumer error. Exiting...")
                     try:
-                        consumer.close()
+                        self.consumer.close()
                     except Exception:
                         utils.print_exception(self, 'Exception when closing the consumer.', fatal=True)
 
@@ -770,22 +734,6 @@ class Link:
     def in_time(start_time, assigned_time):
         return (start_time - utils.get_timestamp_ms()) < assigned_time
 
-    def load_object(self, object_name):
-        try:
-            if self.resources_location == 'aerospike':
-                _, obj = self.aerospike.get_and_close(
-                    object_name,
-                    self.aerospike_resources_namespace,
-                    self.aerospike_resources_set
-                )
-                return obj
-            elif self.resources_location == 'local':
-                local_connector = LocalConnector(self.local_resources_path)
-                return local_connector.get_object(object_name)
-        except Exception:
-            utils.print_exception(self,
-                'Missing resources_location attribute. Exiting...', fatal=True)
-
     def _load_args(self):
         parser = argparse.ArgumentParser()
         # Input topic
@@ -846,16 +794,6 @@ class Link:
                             E.g., "localhost:27017".',
                             required=False)
 
-        # Aerospike path
-        parser.add_argument('-l',
-                            '-p',
-                            '--resources-location',
-                            action="store",
-                            dest="resources_location",
-                            help='Path for setup resources. \
-                            E.g., "aerospike:namespace:set".',
-                            required=False)
-
         parsed_args = parser.parse_known_args()
         args = parsed_args[0]
         self.args = parsed_args[1]
@@ -891,13 +829,3 @@ class Link:
             mongodb_host_port = args.mongodb_host_port.split(':')
             self.mongodb_host = mongodb_host_port[0]
             self.mongodb_port = int(mongodb_host_port[1])
-
-        if args.resources_location:
-            resources_location = args.resources_location.split(':')
-            self.resources_location = resources_location[0]
-
-            if self.resources_location == 'aerospike':
-                self.aerospike_resources_namespace = resources_location[1]
-                self.aerospike_resources_set = resources_location[2]
-            elif self.resources_location == 'local':
-                self.local_resources_path = resources_location[1]

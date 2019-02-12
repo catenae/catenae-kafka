@@ -76,6 +76,9 @@ def get_tuples_from_dict(item):
         else:
             yield key, value
 
+def print(instance, message):
+    logging.info(f"{instance.__class__.__name__}: {message}")
+
 def print_error(instance, message, fatal=False):
     message = 'Error at ' + instance.__class__.__name__ \
         + '. Message: ' + message
