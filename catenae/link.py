@@ -274,16 +274,21 @@ class Link:
                 if electron.previous_topic == self.rpc_topic:
                     # The instance is not provided or matches the UUID that was
                     # used as consumer group
-                    if not 'to' in electron.value or \
-                    electron.value['to'] == self.consumer_group:
-                        if 'method' in electron.value \
-                        and ('args' in electron.value or 'kwargs' in electron.value):
-                            self._rpc_call(electron.value['method'],
-                                           from_=electron.value['from'],
-                                           args=electron.value['args'],
-                                           kwargs=electron.value['kwargs'])
-                    else:
-                        logging.error(f"Invalid RPC invocation: {electron.value}")
+                    try:
+                        if not 'to' in electron.value or \
+                        electron.value['to'] == self.consumer_group:
+                            if 'method' in electron.value \
+                            and ('args' in electron.value or 'kwargs' in electron.value):
+                                self._rpc_call(electron.value['method'],
+                                            from_=electron.value['from'],
+                                            args=electron.value['args'],
+                                            kwargs=electron.value['kwargs'])
+                        else:
+                            logging.error(f"Invalid RPC invocation: {electron.value}")
+                    finally:
+                        if self.synchronous:
+                            commit_kafka_message_callback.execute()
+
                     # Skip the standard procedure
                     continue
 
