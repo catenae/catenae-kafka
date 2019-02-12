@@ -15,7 +15,13 @@ mongodb.open_connection()
 mongodb.close_connection()
 
 item = {'identifier': 'id1'}
-attributes = {'attr1': 'value1', 'attr2': 'value2'}
+attributes = {'attr1': 'value1', 'attr2': 'value2','attr3':[]}
+
+# Try to add elements to a document list
+mongodb.push(item,'attr3',["value3","value4"])
+result = mongodb.get(item)
+for result_item in result:
+    assert([x for x in result_item['attr3'] if x in ["value3","value4"]])
 
 # Create index
 mongodb.create_index('attr1', type_='desc')
