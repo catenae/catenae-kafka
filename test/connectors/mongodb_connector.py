@@ -21,7 +21,7 @@ attributes = {'attr1': 'value1', 'attr2': 'value2','attr3':[]}
 mongodb.push(item,'attr3',["value3","value4"])
 result = mongodb.get(item)
 for result_item in result:
-    assert([x for x in result_item['attr3'] if x in ["value3","value4"]])
+    assert(set(result_item['attr3'])==set(["value3","value4"]))
 
 # Create index
 mongodb.create_index('attr1', type_='desc')
