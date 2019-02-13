@@ -2,22 +2,24 @@
 # -*- coding: utf-8 -*-
 
 import sys
-import threading
 import math
 import re
+from threading import Lock
 import _pickle as pickle
-from confluent_kafka import Producer, Consumer, KafkaError
 import time
+import argparse
+from uuid import uuid4
+import os
+from confluent_kafka import Producer, Consumer, KafkaError
+from . import utils
 from .electron import Electron
 from .callback import Callback
+from .logger import Logger
 from .linkqueue import LinkQueue
-from . import utils
-import argparse
+from .thread import Thread
 from .connectors.aerospike import AerospikeConnector
 from .connectors.mongodb import MongodbConnector
 from .connectors.local import LocalConnector
-import logging
-from uuid import uuid4
 
 
 class Link:
@@ -36,10 +38,10 @@ class Link:
 
     def __init__(self, log_level='INFO'):
         log_level = log_level.upper()
-        logging.getLogger().setLevel(getattr(logging, log_level))
-        logging.info(f'Log level: {log_level}')
+        self.logger = Logger(self, log_level)
+        self.logger.log(f'log level: {log_level}')
         self.launched = False
-        self.input_topics_lock = threading.Lock()
+        self.input_topics_lock = Lock()
         self.rpc_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
         self._load_args()
 
@@ -47,7 +49,7 @@ class Link:
         running = True
         while(running):
             try:
-                logging.info(f"{self.__class__.__name__}: new loop iteration ({target.__name__})")
+                self.logger.log(f'new loop iteration ({target.__name__})')
                 start_timestamp = utils.get_timestamp()
 
                 if args:
@@ -62,7 +64,7 @@ class Link:
                     time.sleep(sleep_seconds)
                     
             except Exception:
-                logging.exception(f'Exception raised when executing the loop: {target.__name__}')
+                self.logger.log(f'exception raised when executing the loop: {target.__name__}', level='exception')
 
     def rpc_call(self, module, method, to=None, args=None, kwargs=None):
         """ 
@@ -84,7 +86,7 @@ class Link:
         """
         Local invocation of a RPC call coming from another module
         """
-        logging.info(f'RPC invocation from {from_}')
+        self.logger.log(f'RPC invocation from {from_}')
         try:
             if args:
                 getattr(self, method)(*args)
@@ -93,14 +95,36 @@ class Link:
             else:
                 getattr(self, method)()
         except Exception:
-            logging.exception('Exception raised while executing a RPC call:')
+            self.logger.log('exception raised while executing a RPC call:', level='exception')
+
+    def suicide(self, message=None, exception=False, exit_=1):
+        if not message:
+            message = 'Suicide method invoked.'
+
+        if hasattr(self, 'producer_thread'):
+            self.producer_thread.stop()
+        if hasattr(self, 'consumer_thread'):
+            self.consumer_thread.stop()
+        if hasattr(self, 'transform_thread'):
+            self.transform_thread.stop()
+
+        message += ' Exiting...'
+        if exception:
+            self.logger.log(message, level='exception')
+            exit_ = 1
+        elif exit_ == 0:
+            self.logger.log(message)
+        else:
+            self.logger.log(message, level='error')
+
+        os._exit(exit_)
 
     def loop(self, target, args=None, kwargs=None, interval=60, wait=False):
         loop_task_kwargs = {'target': target,
                             'args': args,
                             'kwargs': kwargs,
                             'interval': interval}
-        loop_thread = threading.Thread(target=self._loop_task, kwargs=loop_task_kwargs)
+        loop_thread = Thread(target=self._loop_task, kwargs=loop_task_kwargs)
         if wait:
             time.sleep(interval)
         loop_thread.start()
@@ -155,15 +179,12 @@ class Link:
 
         self.producer = Producer(properties)
 
-        running = True
-        while(running):
+        while not self.producer_thread.stopped():
             electron = self._output_messages.get()
 
             # All the queue items of the _output_messages must be individual
             # instances of Electron
             if type(electron) != Electron:
-                logging.info(type(electron))
-                logging.info(str(electron))
                 raise ValueError
 
             # The key is enconded for its use as partition key
@@ -177,7 +198,7 @@ class Link:
             # If the destiny topic is not specified, the first is used
             if not electron.topic:
                 if not self.output_topics:
-                    utils.print_error(self, "Electron / default output topic unset. Exiting...", fatal=True)
+                    self.suicide('Electron / default output topic unset.')
                 electron.topic = self.output_topics[0]
 
             # Electrons are serialized
@@ -203,10 +224,10 @@ class Link:
                     # Wait for all messages in the Producer queue to be delivered.
                     self.producer.flush()
 
-                logging.debug(f'Electron produced')
+                self.logger.log('electron produced.', level='debug')
 
             except Exception:
-                utils.print_exception(self, "Kafka producer error. Exiting...", fatal=True)
+                self.suicide('Kafka producer error.', exception=True)
 
             # Synchronous
             if self.synchronous:
@@ -217,15 +238,14 @@ class Link:
         """
         Process only messages coming from a Kafka input
         """
-        running = True
-        while running:
-            logging.debug('Waiting for a new electron to transform...')
+        while not self.transform_thread.stopped():
+            self.logger.log('waiting for a new electron to transform...', level='debug')
 
             transform_callback = Callback()
             commit_kafka_message_callback = Callback(type_=Callback.COMMIT_KAFKA_MESSAGE)
 
             queue_item = self._received_messages.get()
-            logging.debug(f'Electron received')
+            self.logger.log('electron received', level='debug')
 
             # An item from the _received_messages queue will not be of 
             # type Electron in any case. In the nearest scenario, the 
@@ -260,8 +280,8 @@ class Link:
                     except Exception:
                         electron = Electron(queue_item.key(), queue_item.value())
             else:
-                utils.print_error(self, 'Not supported type for ' + \
-                f'{str(queue_item.value())} ({type(queue_item.value())})')
+                self.logger.log('Not supported type for ' + \
+                f'{str(queue_item.value())} ({type(queue_item.value())})', level='error')
                 continue
 
             # Clean the previous topic
@@ -284,7 +304,8 @@ class Link:
                                             args=electron.value['args'],
                                             kwargs=electron.value['kwargs'])
                         else:
-                            logging.error(f"Invalid RPC invocation: {electron.value}")
+                            self.logger.log(f'Invalid RPC invocation: {electron.value}', level='error')
+                            
                     finally:
                         if self.synchronous:
                             commit_kafka_message_callback.execute()
@@ -295,7 +316,7 @@ class Link:
                 else:
                     transform_result = self.transform(electron)
 
-                    logging.debug(f'Electron transformed')
+                    self.logger.log('electron transformed', level='debug')
 
                     if type(transform_result) == tuple:
                         electrons = transform_result[0]
@@ -354,13 +375,11 @@ class Link:
                     # If the synchronous mode is enabled, the input message
                     # will be commited if the transform method returns None 
                     # or if the output is not managed by the Kafka producer
-                    if self.synchronous:
+                    if self.synchronous and commit_kafka_message_callback:
                         commit_kafka_message_callback.execute()
                     
             except Exception:
-                utils.print_exception(
-                    self,
-                    'Exception during the execution of "transform"')
+                self.logger.log('Exception during the execution of "transform".', level='exception')
 
     def _break_consumer_loop(self, subscription):
         return len(subscription) > 1 and self.mki_mode != 'parity'
@@ -368,23 +387,23 @@ class Link:
     def _commit_kafka_message(self, message):
         commited = False
         attempts = 0
-        logging.debug(f'Trying to commit the message with value {message.value()} (attempt {attempts})')
+        self.logger.log(f'trying to commit the message with value {message.value()} (attempt {attempts})', level='debug')
         while not commited:
             if attempts > 1:
-                logging.warn(f'Trying to commit the message with value {message.value()} (attempt {attempts})')
+                self.logger.log(f'Trying to commit the message with value {message.value()} (attempt {attempts})', level='warn')
             try:
                 self.consumer.commit(**{'message': message, 'asynchronous': False})
             except Exception:
-                logging.exception(f'Exception when trying to commit the message with value {message.value()}')
+                self.logger.log(f'Exception when trying to commit the message with value {message.value()}', level='exception')
                 continue
             commited = True
             attempts += 1
-        logging.debug(f'Message with value {message.value()} commited')
+        self.logger.log(f'Message with value {message.value()} commited', level='debug')
 
     def _kafka_consumer(self):
         # Since the list
         if not self.input_topics:
-            logging.info(f"{self.__class__.__name__}: stopped input. No input topics.")
+            self.logger.log('stopped input. No input topics.')
             return
 
         if self.mki_mode == 'parity':
@@ -417,10 +436,10 @@ class Link:
             })
 
         self.consumer = Consumer(properties)
-        logging.info(f'{self.__class__.__name__} consumer group: {self.consumer_group}')
-        running = True
+        self.logger.log(f'consumer group: {self.consumer_group}')
         prev_queued_messages = 0
-        while running:
+
+        while not self.consumer_thread.stopped():
             for i, topic in enumerate(self.input_topic_assignments.keys()):
                 # Buffer for the current topic
                 message_buffer = []
@@ -430,11 +449,11 @@ class Link:
                 elif self.mki_mode == 'parity':
                     subscription = list(self.input_topics)
                 else:
-                    utils.print_error(self, 'Unknown priority mode', fatal=True)
+                    self.suicide('Unknown priority mode')
 
                 # Replaces the current subscription
                 self.consumer.subscribe(subscription)
-                logging.info(f'{self.__class__.__name__} listening on: {subscription}')
+                self.logger.log(f'listening on: {subscription}')
 
                 try:
                     start_time = utils.get_timestamp_ms()
@@ -464,7 +483,7 @@ class Link:
                                 continue
 
                             elif message.error():
-                                utils.print_error(self, str(message.error()))
+                                self.logger.log(str(message.error()), level='error')
                         else:
                             # Synchronous commit
                             if self.synchronous:
@@ -502,7 +521,7 @@ class Link:
                             if not self._break_consumer_loop(subscription) \
                             and current_queued_messages > 1 \
                             and current_queued_messages > prev_queued_messages - 2:
-                                logging.info(f"Penalized topic: {topic}")
+                                self.logger.log(f'penalized topic: {topic}')
                                 break
 
                             prev_queued_messages = current_queued_messages
@@ -512,13 +531,12 @@ class Link:
                         self._received_messages.put(message)
 
                 except Exception:
-                    utils.print_exception(self, "Kafka consumer error. Exiting...")
                     try:
                         self.consumer.close()
-                    except Exception:
-                        utils.print_exception(self, 'Exception when closing the consumer.', fatal=True)
+                    finally:
+                        self.suicide('Kafka consumer error.', exception=True)
 
-        logging.info(f"{self.__class__.__name__}: stopped input.")
+        self.logger.log('stopped input.')
 
     def _get_index_assignment(self, window_size, index, elements_no, base=1.7):
         """
@@ -560,14 +578,12 @@ class Link:
                         continue
                     self._output_messages.put(Electron(value=item, topic=topic, unpack_if_string=True))
         except Exception:
-            logging.exception('')
+            self.logger.log('', level='exception')
 
     def generator(self):
         """ If the generator method was not overrided in the main script an
         error will be printed and the execution will finish """
-        utils.print_error(self,
-                         "Undefined \"generator\" method. Exiting...",
-                         fatal=True)
+        self.suicide('Undefined "generator" method.')
 
     def custom_input(self):
         """ If a custom_input method is not defined by the main script,
@@ -576,14 +592,13 @@ class Link:
         considered deprecated """
         return self.generator()
 
-    @staticmethod
-    def _thread_target(**kwargs):
+    def _thread_target(self, **kwargs):
         try:
             target = kwargs['target']
             kwargs.pop('target')
             target(**kwargs)
         except Exception:
-            utils.print_exception(target, f"Exception during the execution of \"{target.__name__}\". Exiting...", fatal=True)
+            self.suicide(f'Exception during the execution of "{target.__name__}".', exception=True)
 
     def add_input_topic(self, input_topic):
         if input_topic not in self.input_topics:
@@ -593,7 +608,7 @@ class Link:
                 self._set_input_topic_exp_assignments()
             self.changed_input_topics = True
             self.input_topics_lock.release()
-            logging.info(self.__class__.__name__ + f' added input {input_topic}.')
+            self.logger.log(f'added input {input_topic}.')
 
     def remove_input_topic(self, input_topic):
         if input_topic in self.input_topics:
@@ -603,7 +618,7 @@ class Link:
                 self._set_input_topic_exp_assignments()
             self.changed_input_topics = True
             self.input_topics_lock.release()
-            logging.info(self.__class__.__name__ + f' removed input: {input_topic}.')
+            self.logger.log(f'removed input {input_topic}.')
 
     def start(self,
               link_mode=None,
@@ -635,9 +650,9 @@ class Link:
         self.synchronous = not self.asynchronous
 
         if self.asynchronous:
-            logging.info(self.__class__.__name__ + ' execution mode: asynchronous.')
+            self.logger.log('execution mode: asynchronous.')
         else:
-            logging.info(self.__class__.__name__ + ' execution mode: synchronous.')
+            self.logger.log('execution mode: synchronous.')
 
         self.consumer_timeout = consumer_timeout
 
@@ -672,7 +687,7 @@ class Link:
         try:
             self.setup()
         except Exception:
-            utils.print_exception(self, "Exception during the execution of \"setup\". Exiting...", fatal=True)
+            self.suicide('Exception during the execution of "setup".', exception=True)
 
         # Transform
         # Disable Kafka producer for custom output modes
@@ -681,16 +696,16 @@ class Link:
             kafka_producer = False
         transform_kwargs = {'target': self._transform_handler,
                             'kafka_producer': kafka_producer}
-        transform_thread = threading.Thread(target=Link._thread_target,
+        self.transform_thread = Thread(target=self._thread_target,
                                             kwargs=transform_kwargs)
-        transform_thread.start()
+        self.transform_thread.start()
 
         # Kafka producer
         if kafka_producer:
             producer_kwargs = {'target': self._kakfa_producer}
-            producer_thread = threading.Thread(target=Link._thread_target,
+            self.producer_thread = Thread(target=self._thread_target,
                                             kwargs=producer_kwargs)
-            producer_thread.start()
+            self.producer_thread.start()
 
         # Kafka consumer
         input_target = self._kafka_consumer
@@ -699,11 +714,11 @@ class Link:
         elif self._is_multiple_kafka_input() and self.mki_mode == 'exp':
             self._set_input_topic_exp_assignments()
         consumer_kwargs = {'target': input_target}
-        consumer_thread = threading.Thread(target=Link._thread_target,
+        self.consumer_thread = Thread(target=self._thread_target,
                                            kwargs=consumer_kwargs)
-        consumer_thread.start()
+        self.consumer_thread.start()
 
-        logging.info(self.__class__.__name__ + ' link started.')
+        self.logger.log('link started.')
 
     def _is_custom_output(self):
         return self.link_mode == Link.CUSTOM_OUTPUT \
@@ -727,13 +742,12 @@ class Link:
         self.input_topic_assignments = {}
         window_size = 900  # in seconds, 15 minutes
         topics_no = len(self.input_topics)
-        logging.info("Input topics time assingments:")
+        self.logger.log('Input topics time assingments:')
         for i, topic in enumerate(self.input_topics):
             topic_assingment = \
                 self._get_index_assignment(window_size, i, topics_no)
             self.input_topic_assignments[topic] = topic_assingment
-            logging.info(' - ' + topic + ": " + str(topic_assingment) +
-                  " seconds")
+            self.logger.log(f' - {topic}: {topic_assingment} seconds')
 
     @staticmethod
     def in_time(start_time, assigned_time):

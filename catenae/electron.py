@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 
-class Electron(object):
+class Electron:
 
     def __init__(self,
                  key=None,
@@ -21,7 +21,7 @@ class Electron(object):
         else:
             self.callbacks = callbacks
 
-    def __nonzero__(self):
+    def __bool__(self):
         if self.value != None:
             return True
         return False

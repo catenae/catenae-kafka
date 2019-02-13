@@ -24,10 +24,8 @@ class CircularOrderedDict(OrderedDict):
         self._truncate()
 
     def _truncate(self):
-        # self.size == None => no limit
-        if self.size is not None:
+        if self.size:
             while len(self) > self.size:
-                # The first element is removed
                 self.popitem(last=False)
 
 
@@ -42,10 +40,8 @@ class CircularOrderedSet(OrderedSet):
         self._truncate()
 
     def _truncate(self):
-        # self.size == None => no limit
-        if self.size is not None:
+        if self.size:
             while len(self) > self.size:
-                # The first element is removed
                 self.pop(last=False)
 
 
@@ -75,18 +71,3 @@ def get_tuples_from_dict(item):
                 yield from get_tuples_from_dict(v)
         else:
             yield key, value
-
-def print(instance, message):
-    logging.info(f"{instance.__class__.__name__}: {message}")
-
-def print_error(instance, message, fatal=False):
-    message = 'Error at ' + instance.__class__.__name__ \
-        + '. Message: ' + message
-    if fatal:
-        logging.critical(message)
-        os._exit(1)
-    logging.error(message)
-
-def print_exception(instance, message, fatal=False):
-    logging.exception('')
-    print_error(instance, message, fatal)
