@@ -8,7 +8,7 @@ from . import utils
 import logging
 
 
-__version__ = '0.1.3'
+__version__ = '0.2.0'
 
 logging.getLogger().setLevel(logging.INFO)
 logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s',
