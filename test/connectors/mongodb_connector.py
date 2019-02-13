@@ -21,10 +21,10 @@ attributes = {'attr1': 'value1', 'attr2': 'value2','attr3':[],'attr4':{'attr5':[
 mongodb.push(item,'attr3',["value3","value4"])
 result = mongodb.get(item)
 for result_item in result:
-    assert([ x for x in result_item['attr3'] if x in ["value3","value4"]])
+    assert(set(result_item['attr3'])==set(["value3","value4"]))
 
 # ... adding in a second level
-mongodb.push(item,{'attr4','attr5'},["value5"])
+mongodb.push(item,'attr4.attr5',["value5"])
 result = mongodb.get(item)
 for result_item in result:
     assert(set(result_item['attr4']['attr5'])==set(["value5"]))

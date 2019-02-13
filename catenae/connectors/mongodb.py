@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from pymongo import MongoClient
+import json
 
 
 class MongodbConnector:
@@ -115,7 +116,7 @@ class MongodbConnector:
     def update(self, query, value, database_name=None, collection_name=None):
         collection = self._get_collection(database_name, collection_name)
         collection.update_one(query, {'$set': value}, upsert=True)
-       
+
     def push(self, query, key, value, database_name=None, collection_name=None):
         collection = self._get_collection(database_name, collection_name)
         collection.update_one(query, {'$push': { key: { '$each': value }}}, upsert=True)
