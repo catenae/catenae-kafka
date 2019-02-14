@@ -42,7 +42,16 @@ class Link:
         self.logger.log(f'log level: {log_level}')
         self.launched = False
         self.input_topics_lock = Lock()
-        self.rpc_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
+        self.uuid = str(uuid4())
+
+        # RPC topics
+        self.rpc_instance_topic = f'catenae_rpc_{self.uuid}'
+        self.rpc_group_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
+        self.rpc_broadcast_topic = 'catenae_rpc_broadcast'
+        self.rpc_topics = [self.rpc_instance_topic,
+                           self.rpc_group_topic,
+                           self.rpc_broadcast_topic]
+
         self._load_args()
 
     def _loop_task(self, target, args, kwargs, interval):
@@ -69,7 +78,7 @@ class Link:
                     f'exception raised when executing the loop: {target.__name__}',
                     level='exception')
 
-    def rpc_call(self, module, method, to=None, args=None, kwargs=None):
+    def rpc_call(self, module, method, args=None, kwargs=None):
         """ 
         Send a Kafka message which will be interpreted as a RPC call by the receiver module.
         The to parameter referes to the consumer group which can be random (UUID), the name
@@ -84,8 +93,6 @@ class Link:
                 'kwargs': kwargs
             },
             topic=topic)
-        if to:
-            electron.value.update({'to': to})
         self.send(electron)
 
     def _rpc_call(self, method, from_=None, args=None, kwargs=None):
@@ -320,15 +327,13 @@ class Link:
         # The instance is not provided or matches the UUID that was
         # used as consumer group
         try:
-            if not 'to' in electron.value or \
-            electron.value['to'] == self.consumer_group:
-                if 'method' in electron.value \
-                and ('args' in electron.value or 'kwargs' in electron.value):
-                    self._rpc_call(
-                        electron.value['method'],
-                        from_=electron.value['from'],
-                        args=electron.value['args'],
-                        kwargs=electron.value['kwargs'])
+            if 'method' in electron.value \
+            and ('args' in electron.value or 'kwargs' in electron.value):
+                self._rpc_call(
+                    electron.value['method'],
+                    from_=electron.value['from'],
+                    args=electron.value['args'],
+                    kwargs=electron.value['kwargs'])
             else:
                 self.logger.log(
                     f'Invalid RPC invocation: {electron.value}',
@@ -395,7 +400,7 @@ class Link:
 
             # The destiny topic will be overwritten if desired in the
             # transform method (default, first output topic)
-            if electron.previous_topic == self.rpc_topic:
+            if electron.previous_topic in self.rpc_topics:
                 self.transform_rpc_executor.submit(self._rpc_handler, [electron, commit_kafka_message_callback])
             else:
                 self.transform_main_executor.submit(self._transform_handler, [electron, commit_kafka_message_callback, transform_callback])
@@ -696,7 +701,7 @@ class Link:
 
         if not hasattr(self, 'consumer_group'):
             if random_consumer_group:
-                self.consumer_group = str(uuid4())
+                self.consumer_group = self.uuid
             elif consumer_group:
                 self.consumer_group = consumer_group
             else:
@@ -868,8 +873,8 @@ class Link:
         else:
             self.input_topics = []
 
-        # Add the default topic for RPC invocations
-        self.input_topics.append(self.rpc_topic)
+        # Add the RPC topics
+        self.input_topics += self.rpc_topics
 
         # Output topics
         if args.output_topics:
