@@ -78,13 +78,13 @@ class Link:
                     f'exception raised when executing the loop: {target.__name__}',
                     level='exception')
 
-    def rpc_call(self, module, method, args=None, kwargs=None):
+    def rpc_call(self, to='broadcast', method=None, args=None, kwargs=None):
         """ 
         Send a Kafka message which will be interpreted as a RPC call by the receiver module.
-        The to parameter referes to the consumer group which can be random (UUID), the name
-        of the class (module) or a custom one
         """
-        topic = f'catenae_rpc_{module.lower()}'
+        if not method:
+            raise ValueError
+        topic = f'catenae_rpc_{to.lower()}'
         electron = Electron(
             value={
                 'method': method,
@@ -303,7 +303,7 @@ class Link:
         # is set to the Kafka producer, delegate the remaining
         # work to the Kafka producer
 
-        if electrons and self.kafka_output:
+        if electrons and self.is_kafka_output:
             # The callback will be executed only for the last
             # electron if there are more than one
             electrons[-1].callbacks = []
@@ -689,7 +689,7 @@ class Link:
         # Link modes
         self.is_custom_output = self.link_mode == Link.CUSTOM_OUTPUT \
             or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT
-        self.is_kafka_producer = not self.is_custom_output
+        self.is_kafka_output = not self.is_custom_output
         self.is_custom_input = self.link_mode == Link.CUSTOM_INPUT
         self.is_multiple_kafka_input = \
             self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT \
@@ -762,7 +762,7 @@ class Link:
         self.transform_thread.start()
 
         # Kafka producer
-        if self.is_kafka_producer:
+        if self.is_kafka_output:
             producer_kwargs = {'target': self._kakfa_producer}
             self.producer_thread = Thread(
                 target=self._main_thread_target, kwargs=producer_kwargs)
