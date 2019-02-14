@@ -16,7 +16,7 @@ from .electron import Electron
 from .callback import Callback
 from .logger import Logger
 from .linkqueue import LinkQueue
-from .thread import Thread
+from .threading import Thread, ThreadPool
 from .connectors.aerospike import AerospikeConnector
 from .connectors.mongodb import MongodbConnector
 from .connectors.local import LocalConnector
@@ -146,10 +146,6 @@ class Link:
         raise NotImplementedError
 
     def _kakfa_producer(self):
-        """
-        Send to the Kafka broker electrons coming from the send method of
-        resulting from the execution of the transform method
-        """
         properties = dict(self.common_properties)
         properties.update({
             'partition.assignment.strategy': 'roundrobin',
@@ -245,10 +241,105 @@ class Link:
                 for callback in electron.callbacks:
                     callback.execute()
 
-    def _transform_handler(self):
-        """
-        Process only messages coming from a Kafka input
-        """
+    def _transform_handler(self, electron, commit_kafka_message_callback, transform_callback):
+        try:
+            transform_result = self.transform(electron)
+            self.logger.log('electron transformed', level='debug')
+        except Exception:
+            self.logger.log(
+                'Exception during the execution of "transform".',
+                level='exception')
+            return
+
+        if type(transform_result) == tuple:
+            electrons = transform_result[0]
+            # Function to call if asynchronous mode is enabled after
+            # a message is correctly commited to a Kafka broker
+            if len(transform_result) > 1:
+                transform_callback.target = transform_result[1]
+                if len(transform_result) > 2:
+                    if type(transform_result[2]) == list:
+                        transform_callback.args = transform_result[
+                            2]
+                    elif type(transform_result[2]) == dict:
+                        transform_callback.kwargs = transform_result[
+                            2]
+        else:
+            electrons = transform_result
+
+        # Even if no electrons are returned in the transform method,
+        # continue so the input electron can be commited by the Kafka
+        # consumer (synchronous mode, kafka_output).
+        if electrons == None:
+            electrons = []
+
+        # Already a list
+        if type(electrons) == list:
+            real_electrons = []
+            for electron in electrons:
+                if type(electron) == Electron:
+                    real_electrons.append(electron)
+                else:
+                    real_electrons.append(
+                        Electron(
+                            value=electron, unpack_if_string=True))
+            electrons = real_electrons
+
+        # If there is only one item, convert it to a list
+        else:
+            if type(electrons) == Electron:
+                electrons = [electrons]
+            else:
+                electrons = [Electron(value=electrons)]
+
+        # If the transform method returns anything and the output
+        # is set to the Kafka producer, delegate the remaining
+        # work to the Kafka producer
+
+        if electrons and self.kafka_output:
+            # The callback will be executed only for the last
+            # electron if there are more than one
+            electrons[-1].callbacks = []
+            if commit_kafka_message_callback:
+                electrons[-1].callbacks.append(
+                    commit_kafka_message_callback)
+            if transform_callback:
+                electrons[-1].callbacks.append(transform_callback)
+
+            for electron in electrons:
+                self._output_messages.put(electron)
+            return
+
+        # If the synchronous mode is enabled, the input message
+        # will be commited if the transform method returns None
+        # or if the output is not managed by the Kafka producer
+        if self.synchronous and commit_kafka_message_callback:
+            commit_kafka_message_callback.execute()
+
+    def _rpc_handler(self, electron, commit_kafka_message_callback):
+        # The instance is not provided or matches the UUID that was
+        # used as consumer group
+        try:
+            if not 'to' in electron.value or \
+            electron.value['to'] == self.consumer_group:
+                if 'method' in electron.value \
+                and ('args' in electron.value or 'kwargs' in electron.value):
+                    self._rpc_call(
+                        electron.value['method'],
+                        from_=electron.value['from'],
+                        args=electron.value['args'],
+                        kwargs=electron.value['kwargs'])
+            else:
+                self.logger.log(
+                    f'Invalid RPC invocation: {electron.value}',
+                    level='error')
+        except Exception:
+            self.logger.log('error when invoking a RPC method.', level='exception')
+        finally:
+            if self.synchronous:
+                commit_kafka_message_callback.execute()
+
+    def _input_handler(self):
         while not self.transform_thread.stopped():
             self.logger.log(
                 'waiting for a new electron to transform...', level='debug')
@@ -257,10 +348,10 @@ class Link:
             commit_kafka_message_callback = Callback(
                 type_=Callback.COMMIT_KAFKA_MESSAGE)
 
-            queue_item = self._received_messages.get()
+            queue_item = self._input_messages.get()
             self.logger.log('electron received', level='debug')
 
-            # An item from the _received_messages queue will not be of
+            # An item from the _input_messages queue will not be of
             # type Electron in any case. In the nearest scenario, the
             # Kafka message value would be an Electron instance
 
@@ -304,106 +395,10 @@ class Link:
 
             # The destiny topic will be overwritten if desired in the
             # transform method (default, first output topic)
-            try:
-                if electron.previous_topic == self.rpc_topic:
-                    # The instance is not provided or matches the UUID that was
-                    # used as consumer group
-                    try:
-                        if not 'to' in electron.value or \
-                        electron.value['to'] == self.consumer_group:
-                            if 'method' in electron.value \
-                            and ('args' in electron.value or 'kwargs' in electron.value):
-                                self._rpc_call(
-                                    electron.value['method'],
-                                    from_=electron.value['from'],
-                                    args=electron.value['args'],
-                                    kwargs=electron.value['kwargs'])
-                        else:
-                            self.logger.log(
-                                f'Invalid RPC invocation: {electron.value}',
-                                level='error')
-
-                    finally:
-                        if self.synchronous:
-                            commit_kafka_message_callback.execute()
-
-                    # Skip the standard procedure
-                    continue
-
-                else:
-                    transform_result = self.transform(electron)
-
-                    self.logger.log('electron transformed', level='debug')
-
-                    if type(transform_result) == tuple:
-                        electrons = transform_result[0]
-                        # Function to call if asynchronous mode is enabled after
-                        # a message is correctly commited to a Kafka broker
-                        if len(transform_result) > 1:
-                            transform_callback.target = transform_result[1]
-                            if len(transform_result) > 2:
-                                if type(transform_result[2]) == list:
-                                    transform_callback.args = transform_result[
-                                        2]
-                                elif type(transform_result[2]) == dict:
-                                    transform_callback.kwargs = transform_result[
-                                        2]
-                    else:
-                        electrons = transform_result
-
-                    # Even if no electrons are returned in the transform method,
-                    # continue so the input electron can be commited by the Kafka
-                    # consumer (synchronous mode, kafka_output).
-                    if electrons == None:
-                        electrons = []
-
-                    # Already a list
-                    if type(electrons) == list:
-                        real_electrons = []
-                        for electron in electrons:
-                            if type(electron) == Electron:
-                                real_electrons.append(electron)
-                            else:
-                                real_electrons.append(
-                                    Electron(
-                                        value=electron, unpack_if_string=True))
-                        electrons = real_electrons
-
-                    # If there is only one item, convert it to a list
-                    else:
-                        if type(electrons) == Electron:
-                            electrons = [electrons]
-                        else:
-                            electrons = [Electron(value=electrons)]
-
-                    # If the transform method returns anything and the output
-                    # is set to the Kafka producer, delegate the remaining
-                    # work to the Kafka producer
-
-                    if electrons and self.is_kafka_output:
-                        # The callback will be executed only for the last
-                        # electron if there are more than one
-                        electrons[-1].callbacks = []
-                        if commit_kafka_message_callback:
-                            electrons[-1].callbacks.append(
-                                commit_kafka_message_callback)
-                        if transform_callback:
-                            electrons[-1].callbacks.append(transform_callback)
-
-                        for electron in electrons:
-                            self._output_messages.put(electron)
-                        continue
-
-                    # If the synchronous mode is enabled, the input message
-                    # will be commited if the transform method returns None
-                    # or if the output is not managed by the Kafka producer
-                    if self.synchronous and commit_kafka_message_callback:
-                        commit_kafka_message_callback.execute()
-
-            except Exception:
-                self.logger.log(
-                    'Exception during the execution of "transform".',
-                    level='exception')
+            if electron.previous_topic == self.rpc_topic:
+                self.transform_rpc_executor.submit(self._rpc_handler, [electron, commit_kafka_message_callback])
+            else:
+                self.transform_main_executor.submit(self._transform_handler, [electron, commit_kafka_message_callback, transform_callback])
 
     def _break_consumer_loop(self, subscription):
         return len(subscription) > 1 and self.mki_mode != 'parity'
@@ -525,7 +520,7 @@ class Link:
                             # Synchronous commit
                             if self.synchronous:
                                 # Commit when the transformation is commited
-                                self._received_messages.put(
+                                self._input_messages.put(
                                     (message, self._commit_kafka_message,
                                      [message]))
                                 continue
@@ -533,7 +528,7 @@ class Link:
                             # Asynchronous (only one topic)
                             if len(subscription
                                    ) == 1 or self.mki_mode == 'parity':
-                                self._received_messages.put(message)
+                                self._input_messages.put(message)
                                 continue
 
                             # Asynchronous (with penalizations support for
@@ -544,18 +539,18 @@ class Link:
                             message_buffer.append(message)
                             current_queued_messages = len(message_buffer)
 
-                            self._received_messages.messages_left = \
-                                self._received_messages.messages_left - 1
+                            self._input_messages.messages_left = \
+                                self._input_messages.messages_left - 1
 
                             # If there is only one message left, the offset is
                             # committed
-                            if self._received_messages.messages_left < 1:
+                            if self._input_messages.messages_left < 1:
                                 for message in message_buffer:
-                                    self._received_messages.put(message)
+                                    self._input_messages.put(message)
                                 message_buffer = []
 
-                                self._received_messages.messages_left = \
-                                    self._received_messages.minimum_messages
+                                self._input_messages.messages_left = \
+                                    self._input_messages.minimum_messages
 
                             # Penalize if only one message was consumed
                             if not self._break_consumer_loop(subscription) \
@@ -568,7 +563,7 @@ class Link:
 
                     # Dump the buffer before changing the subscription
                     for message in message_buffer:
-                        self._received_messages.put(message)
+                        self._input_messages.put(message)
 
                 except Exception:
                     try:
@@ -638,11 +633,14 @@ class Link:
         considered deprecated """
         return self.generator()
 
-    def _thread_target(self, **kwargs):
+    def _main_thread_target(self, target, args=None, kwargs=None):
         try:
-            target = kwargs['target']
-            kwargs.pop('target')
-            target(**kwargs)
+            if args:
+                target(*args)
+            elif kwargs:
+                target(**kwargs)
+            else:
+                target()
         except Exception:
             self.suicide(
                 f'Exception during the execution of "{target.__name__}".',
@@ -716,7 +714,7 @@ class Link:
 
         self.consumer_timeout = consumer_timeout
 
-        self._received_messages = LinkQueue()
+        self._input_messages = LinkQueue()
         self._output_messages = LinkQueue()
 
         self.common_properties = {
@@ -747,16 +745,22 @@ class Link:
                 'Exception during the execution of "setup".', exception=True)
 
         # Transform
-        transform_kwargs = {'target': self._transform_handler}
+        num_threads = 5
+        if self.synchronous:
+            num_threads = 1
+        self.transform_rpc_executor = ThreadPool(self, num_threads)
+        self.transform_main_executor = ThreadPool(self, num_threads)
+
+        transform_kwargs = {'target': self._input_handler}
         self.transform_thread = Thread(
-            target=self._thread_target, kwargs=transform_kwargs)
+            target=self._main_thread_target, kwargs=transform_kwargs)
         self.transform_thread.start()
 
         # Kafka producer
         if self.is_kafka_producer:
             producer_kwargs = {'target': self._kakfa_producer}
             self.producer_thread = Thread(
-                target=self._thread_target, kwargs=producer_kwargs)
+                target=self._main_thread_target, kwargs=producer_kwargs)
             self.producer_thread.start()
 
         # Kafka consumer
@@ -767,7 +771,7 @@ class Link:
             self._set_input_topic_exp_assignments()
         consumer_kwargs = {'target': input_target}
         self.consumer_thread = Thread(
-            target=self._thread_target, kwargs=consumer_kwargs)
+            target=self._main_thread_target, kwargs=consumer_kwargs)
         self.consumer_thread.start()
 
         self.logger.log('link started.')
