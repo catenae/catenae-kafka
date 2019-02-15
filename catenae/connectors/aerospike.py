@@ -12,23 +12,20 @@ class AerospikeConnector:
         self.config = {'hosts': [(bootstrap_server, bootstrap_port)],
                        'policies': {'timeout': 5000}}
         if default_namespace:
-            self.namespace = default_namespace
+            self.default_namespace = default_namespace
         else:
-            self.namespace = 'test'
+            self.default_namespace = 'test'
         if default_set:
-            self.set = default_set
+            self.default_set = default_set
         else:
-            self.set = 'test'
+            self.default_set = 'test'
         self.client = None
         if connect:
             self.open_connection()
 
-    def _connect_get_askey(self, key, namespace, set_):
-        self.open_connection()
-        namespace, set_ = \
-            self._set_namespace_set_names(namespace, set_)
-        as_key = (namespace, set_, key)
-        return as_key
+    def set_defaults(self, namespace, set_):
+        self.default_namespace = namespace
+        self.default_set = set_
 
     def open_connection(self):
         if self.client == None:
@@ -39,11 +36,18 @@ class AerospikeConnector:
             self.client.close()
             self.client = None
 
+    def _connect_get_askey(self, key, namespace, set_):
+        self.open_connection()
+        namespace, set_ = \
+            self._set_namespace_set_names(namespace, set_)
+        as_key = (namespace, set_, key)
+        return as_key
+
     def _set_namespace_set_names(self, namespace, set_):
         if not namespace:
-            namespace = self.namespace
+            namespace = self.default_namespace
         if not set_:
-            set_ = self.set
+            set_ = self.default_set
         return namespace, set_
 
     def get_and_close(self, key, namespace=None, set_=None):

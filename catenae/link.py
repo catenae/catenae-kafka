@@ -54,9 +54,8 @@ class Link:
 
         self._load_args()
 
-    def _loop_task(self, target, args, kwargs, interval):
-        running = True
-        while (running):
+    def _loop_task(self, thread, target, args=None, kwargs=None, interval=None):
+        while not thread.stopped():
             try:
                 self.logger.log(f'new loop iteration ({target.__name__})')
                 start_timestamp = utils.get_timestamp()
@@ -142,9 +141,11 @@ class Link:
             'interval': interval
         }
         loop_thread = Thread(target=self._loop_task, kwargs=loop_task_kwargs)
+        loop_task_kwargs.update({'thread': loop_thread})
         if wait:
             time.sleep(interval)
         loop_thread.start()
+        return loop_thread
 
     def thread(self, target, args=None, kwargs=None):
         raise NotImplementedError

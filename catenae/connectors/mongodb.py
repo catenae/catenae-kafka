@@ -11,9 +11,9 @@ class MongodbConnector:
                  default_collection=None, connect=False):
         self.config = {'host': host, 'port': port}
         if default_database:
-            self.database = default_database
+            self.default_database = default_database
         if default_collection:
-            self.collection = default_collection
+            self.default_collection = default_collection
         self.client = None
         if connect:
             self.open_connection()
@@ -27,6 +27,10 @@ class MongodbConnector:
         collection = getattr(database, collection_name)
         return collection
 
+    def set_defaults(self, database_name, database_collection):
+        self.default_database = database_name
+        self.default_collection = database_collection
+
     def open_connection(self):
         if not self.client:
             self.client = MongoClient(**self.config)
@@ -37,9 +41,9 @@ class MongodbConnector:
 
     def _set_database_collection_names(self, database_name, collection_name):
         if not database_name:
-            database_name = self.database
+            database_name = self.default_database
         if not collection_name:
-            collection_name = self.collection
+            collection_name = self.default_collection
         return database_name, collection_name
 
     def get_and_close(self, query=None, database_name=None,
