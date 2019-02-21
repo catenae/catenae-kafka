@@ -451,7 +451,7 @@ class Link:
     def _kafka_consumer_main(self):
         # Since the list
         while not self.input_topics:
-            self.logger.log('No input topics, waiting...')
+            self.logger.log('No input topics, waiting...', level='debug')
             time.sleep(1)
 
         if self.mki_mode == 'parity':
