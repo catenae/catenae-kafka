@@ -16,6 +16,7 @@ class Thread(threading.Thread):
     def stopped(self):
         return self._stop.is_set()
 
+
 class ThreadPool:
     def __init__(self, link_instance, num_threads=1):
         self.link_instance = link_instance

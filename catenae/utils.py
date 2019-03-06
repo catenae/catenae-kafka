@@ -48,24 +48,29 @@ class CircularOrderedSet(OrderedSet):
 def get_timestamp():
     return int(round(time.time()))
 
+
 def get_timestamp_ms():
     return int(round(time.time() * 1000))
+
 
 def keccak256(item):
     if type(item) != str:
         raise ValueError
     return Web3.sha3(text=item).hex()[2:]
 
+
 def dump_dict(dict):
     return json.dumps(dict, separators=(',', ':'), ensure_ascii=False)
+
 
 def load_dict(str_dict):
     return json.loads(str_dict, object_pairs_hook=OrderedDict)
 
+
 def get_tuples_from_dict(item):
     for key, value in item.items():
         if type(value) == dict:
-            yield from get_tuples_from_dict(value)               
+            yield from get_tuples_from_dict(value)
         elif type(value) == list:
             for v in value:
                 yield from get_tuples_from_dict(v)

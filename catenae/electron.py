@@ -3,7 +3,6 @@
 
 
 class Electron:
-
     def __init__(self,
                  key=None,
                  value=None,
@@ -13,7 +12,7 @@ class Electron:
                  callbacks=None):
         self.key = key
         self.value = value
-        self.topic = topic # Destiny topic
+        self.topic = topic  # Destiny topic
         self.previous_topic = previous_topic
         self.unpack_if_string = unpack_if_string
         if callbacks == None:
@@ -36,16 +35,10 @@ class Electron:
 
     def copy(self):
         try:
-            return Electron(self.key,
-                            self.value.copy(),
-                            self.topic,
-                            self.previous_topic,
-                            self.unpack_if_string,
+            return Electron(self.key, self.value.copy(), self.topic,
+                            self.previous_topic, self.unpack_if_string,
                             self.callbacks)
         except Exception:
-            return Electron(self.key,
-                            self.value,
-                            self.topic,
-                            self.previous_topic,
-                            self.unpack_if_string,
+            return Electron(self.key, self.value, self.topic,
+                            self.previous_topic, self.unpack_if_string,
                             self.callbacks)

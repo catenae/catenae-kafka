@@ -5,9 +5,7 @@ from queue import Queue
 
 
 class LinkQueue(Queue):
-    def __init__(self,
-                 minimum_messages=1,
-                 messages_left=None):
+    def __init__(self, minimum_messages=1, messages_left=None):
         if messages_left is None:
             messages_left = minimum_messages
         self.minimum_messages = minimum_messages

@@ -89,14 +89,50 @@ class Link:
         electron = Electron(
             value={
                 'method': method,
-                'from': self.consumer_group,
+                'context': {
+                    'group': self.consumer_group,
+                    'uuid': self.uuid
+                },
                 'args': args,
                 'kwargs': kwargs
             },
             topic=topic)
         self.send(electron)
 
-    def suicide(self, message=None, exception=False, exit_=1):
+    def _rpc_call(self, electron, commit_kafka_message_callback):
+        if not 'method' in electron.value:
+            self.logger.log(
+                f'Invalid RPC invocation: {electron.value}', level='error')
+            return
+
+        try:
+            context = electron.value['context']
+            self.logger.log(
+                f"RPC invocation from {electron.value['context']['uuid']} ({electron.value['context']['group']})",
+                level='debug')
+            if electron.value['kwargs']:
+                kwargs = electron.value['kwargs']
+                kwargs.update({'context': electron.value['kwargs']})
+                getattr(self, electron.value['method'])(**kwargs)
+            else:
+                args = electron.value['args']
+                if not args:
+                    args = [context]
+                elif type(args) != list:
+                    args = [context, args]
+                else:
+                    args = [context] + args
+                getattr(self, electron.value['method'])(*args)
+
+        except Exception:
+            self.logger.log(
+                'error when invoking a RPC method.', level='exception')
+        finally:
+            if self.synchronous:
+                commit_kafka_message_callback.execute()
+            return
+
+    def suicide(self, message=None, exception=False, exit_code=1):
         if not message:
             message = 'Suicide method invoked.'
 
@@ -112,13 +148,13 @@ class Link:
         message += ' Exiting...'
         if exception:
             self.logger.log(message, level='exception')
-            exit_ = 1
-        elif exit_ == 0:
+            exit_code = 1
+        elif exit_code == 0:
             self.logger.log(message)
         else:
             self.logger.log(message, level='error')
 
-        os._exit(exit_)
+        os._exit(exit_code)
 
     def loop(self, target, args=None, kwargs=None, interval=60, wait=False):
         loop_task_kwargs = {
@@ -289,38 +325,6 @@ class Link:
         # or if the output is not managed by the Kafka producer
         if self.synchronous and commit_kafka_message_callback:
             commit_kafka_message_callback.execute()
-
-    def _rpc_call(self, electron, commit_kafka_message_callback):
-        try:
-            if 'method' in electron.value \
-            and ('args' in electron.value or 'kwargs' in electron.value):
-
-                self.logger.log(
-                    f"RPC invocation from {electron.value['from']}")
-                try:
-                    if electron.value['args']:
-                        getattr(
-                            self,
-                            electron.value['method'])(*electron.value['args'])
-                    elif electron.value['kwargs']:
-                        getattr(self, electron.value['method'])(
-                            **electron.value['kwargs'])
-                    else:
-                        getattr(self, electron.value['method'])()
-                except Exception:
-                    self.logger.log(
-                        'exception raised while executing a RPC call:',
-                        level='exception')
-
-            else:
-                self.logger.log(
-                    f'Invalid RPC invocation: {electron.value}', level='error')
-        except Exception:
-            self.logger.log(
-                'error when invoking a RPC method.', level='exception')
-        finally:
-            if self.synchronous:
-                commit_kafka_message_callback.execute()
 
     def _input_handler(self):
         while not self.transform_thread.stopped():

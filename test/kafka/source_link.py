@@ -10,7 +10,9 @@ class SourceLink(Link):
     def setup(self):
         logging.getLogger().setLevel(logging.DEBUG)
         logging.debug(f'{self.__class__.__name__} -> setup()')
-        logging.debug(f'{self.__class__.__name__} -> output_topics: {self.output_topics}')
+        logging.debug(
+            f'{self.__class__.__name__} -> output_topics: {self.output_topics}'
+        )
         self.message_count = 0
 
     def generator(self):
@@ -32,7 +34,8 @@ class SourceLink(Link):
             self.send(electron)
             logging.debug(f'{self.__class__.__name__} -> keyed message sent')
 
-            electron = Electron(value=f'non_keyed_source_value_{self.message_count}')
+            electron = Electron(
+                value=f'non_keyed_source_value_{self.message_count}')
             self.send(electron)
             logging.debug(f'{self.__class__.__name__} -> keyed message sent')
 
@@ -43,7 +46,8 @@ class SourceLink(Link):
 
             # Send a list of strings in the same way
             self.send([string, string, string])
-            logging.debug(f'{self.__class__.__name__} -> Array of simple strings sent')
+            logging.debug(
+                f'{self.__class__.__name__} -> Array of simple strings sent')
 
             # Send directly any object without encapsuling it in an Electron instance
             dict_ = {'dict_key': 'dict_value'}
@@ -52,16 +56,19 @@ class SourceLink(Link):
 
             # Again, but with a custom output topic
             self.send(dict_, topic='input1')
-            logging.debug(f'{self.__class__.__name__} -> Object sent with custom topic')
+            logging.debug(
+                f'{self.__class__.__name__} -> Object sent with custom topic')
 
             # Send a list of non-electron objects
             self.send([dict_, dict_, dict_])
-            logging.debug(f'{self.__class__.__name__} -> Array of objects sent')
+            logging.debug(
+                f'{self.__class__.__name__} -> Array of objects sent')
 
             # Send a list of Electrons
             electron = Electron(value=dict_)
             self.send([electron, electron, electron])
-            logging.debug(f'{self.__class__.__name__} -> Array of electrons sent')
+            logging.debug(
+                f'{self.__class__.__name__} -> Array of electrons sent')
 
             self.message_count += 1
             time.sleep(1)

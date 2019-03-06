@@ -25,7 +25,7 @@ class Callback:
         if not self:
             logging.error('Callback without target.')
             return
-            
+
         if self.type_ == self.COMMIT_KAFKA_MESSAGE:
             return self._execute_commit_kafka_message_callback()
 
@@ -53,6 +53,7 @@ class Callback:
             except Exception as e:
                 if 'UNKNOWN_MEMBER_ID' in str(e):
                     raise Exception('Cannot commit a message (timeout).')
-                logging.exception(f'Trying to commit a message ({attempts})...')
+                logging.exception(
+                    f'Trying to commit a message ({attempts})...')
                 attempts += 1
                 time.sleep(2)
