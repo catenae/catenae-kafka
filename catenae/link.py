@@ -428,7 +428,7 @@ class Link:
         consumer = Consumer(properties)
         subscription = list(self.rpc_topics)
         consumer.subscribe(subscription)
-        self.logger.log(f'listening on: {subscription}')
+        self.logger.log(f'[RPC] listening on: {subscription}')
 
         while not self.consumer_rpc_thread.stopped():
             try:
@@ -496,7 +496,7 @@ class Link:
 
                 # Replaces the current subscription
                 consumer.subscribe(subscription)
-                self.logger.log(f'listening on: {subscription}')
+                self.logger.log(f'[MAIN] listening on: {subscription}')
 
                 try:
                     start_time = utils.get_timestamp_ms()

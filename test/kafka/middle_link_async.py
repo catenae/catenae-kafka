@@ -12,10 +12,13 @@ class MiddleLinkAsync(Link):
     def dummy_log(message):
         logging.info(f'MiddleLinkAsync -> {message}')
 
-    def remote_method(self, origin_context, message):
+    def remote_method(self, context, message):
         logging.info(
-            f'RPC invocation of remote_method(message): {message}.\Context: {origin_context}'
+            f'RPC invocation of remote_method(message): {message}.\Context: {context}'
         )
+
+    def remote_add_input_topic(self, context, topic):
+        self.add_input_topic(topic)
 
     def setup(self):
         logging.debug(f'{self.__class__.__name__} -> setup()')

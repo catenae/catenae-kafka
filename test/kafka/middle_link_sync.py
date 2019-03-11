@@ -54,7 +54,7 @@ class MiddleLinkSync(Link):
                     f'{self.__class__.__name__} -> INPUT CHANGED {self.input_topics}'
                 )
 
-        option = random.randint(0, 7)
+        option = random.randint(0, 8)
         if option == 0:
             return electron
         elif option == 1:
@@ -79,12 +79,20 @@ class MiddleLinkSync(Link):
             }
         elif option == 7:
             logging.debug(
-                f'{self.__class__.__name__} -> RPC invocation (MiddleLinkAsync links)'
+                f'{self.__class__.__name__} -> RPC invocation of remote_method() (MiddleLinkAsync links)'
             )
             self.rpc_call(
                 'MiddleLinkAsync',
                 'remote_method',
-                args=['Hi from MiddleLinkSync'])
+                'Hi from MiddleLinkSync')
+        elif option == 8:
+            logging.debug(
+                f'{self.__class__.__name__} -> RPC invocation of remote_add_input_topic() (MiddleLinkAsync links)'
+            )
+            self.rpc_call(
+                'MiddleLinkAsync',
+                'remote_add_input_topic',
+                f'new_topic_{random.randint(0, 1000)}')
 
 
 if __name__ == "__main__":
