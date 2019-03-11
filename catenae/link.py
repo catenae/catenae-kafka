@@ -42,10 +42,16 @@ class Link:
         self.logger.log(f'log level: {log_level}')
         self.launched = False
         self.input_topics_lock = Lock()
-        self.uuid = str(uuid4())
+        
+        # Preserve the id if the container restarts
+        if bool(os.environ['CATENAE_DOCKER']):
+            self.uid = os.environ['HOSTNAME']
+        else:    
+            self.uid = utils.keccak256(str(uuid4()))[:12]
+        self.uuid = self.uid
 
         # RPC topics
-        self.rpc_instance_topic = f'catenae_rpc_{self.uuid}'
+        self.rpc_instance_topic = f'catenae_rpc_{self.uid}'
         self.rpc_group_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
         self.rpc_broadcast_topic = 'catenae_rpc_broadcast'
         self.rpc_topics = [
@@ -91,7 +97,7 @@ class Link:
                 'method': method,
                 'context': {
                     'group': self.consumer_group,
-                    'uuid': self.uuid
+                    'uuid': self.uid
                 },
                 'args': args,
                 'kwargs': kwargs
@@ -418,7 +424,7 @@ class Link:
 
     def _kafka_consumer_rpc(self):
         properties = dict(self.kafka_consumer_synchronous_properties)
-        properties.update({'group.id': self.uuid})
+        properties.update({'group.id': self.uid})
         consumer = Consumer(properties)
         subscription = list(self.rpc_topics)
         consumer.subscribe(subscription)
@@ -702,7 +708,7 @@ class Link:
 
         if not hasattr(self, 'consumer_group'):
             if random_consumer_group:
-                self.consumer_group = self.uuid
+                self.consumer_group = self.uid
             elif consumer_group:
                 self.consumer_group = consumer_group
             else:
@@ -732,7 +738,7 @@ class Link:
         self.kafka_consumer_common_properties = dict(common_properties)
         self.kafka_consumer_common_properties.update({
             'max.partition.fetch.bytes':
-            2097152,  # 2MiB,
+            1048576,  # 1MiB,
             'metadata.max.age.ms':
             10000,
             'socket.receive.buffer.bytes':
@@ -764,7 +770,7 @@ class Link:
             'partition.assignment.strategy':
             'roundrobin',
             'message.max.bytes':
-            2097152,  # 2MiB
+            1048576,  # 1MiB
             'socket.send.buffer.bytes':
             0,  # System default
             'request.required.acks':
