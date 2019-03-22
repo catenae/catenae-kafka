@@ -42,11 +42,11 @@ class Link:
         self.logger.log(f'log level: {log_level}')
         self.launched = False
         self.input_topics_lock = Lock()
-        
+
         # Preserve the id if the container restarts
         if bool(os.environ['CATENAE_DOCKER']):
             self.uid = os.environ['HOSTNAME']
-        else:    
+        else:
             self.uid = utils.keccak256(str(uuid4()))[:12]
         self.uuid = self.uid
 
@@ -61,8 +61,16 @@ class Link:
 
         self._load_args()
 
-    def _loop_task(self, thread, target, args=None, kwargs=None,
-                   interval=None):
+    def _loop_task(self,
+                   thread,
+                   target,
+                   args=None,
+                   kwargs=None,
+                   interval=None,
+                   wait=False):
+        if wait:
+            time.sleep(interval)
+
         while not thread.stopped():
             try:
                 self.logger.log(f'new loop iteration ({target.__name__})')
@@ -167,12 +175,11 @@ class Link:
             'target': target,
             'args': args,
             'kwargs': kwargs,
-            'interval': interval
+            'interval': interval,
+            'wait': wait
         }
         loop_thread = Thread(target=self._loop_task, kwargs=loop_task_kwargs)
         loop_task_kwargs.update({'thread': loop_thread})
-        if wait:
-            time.sleep(interval)
         loop_thread.start()
         return loop_thread
 
