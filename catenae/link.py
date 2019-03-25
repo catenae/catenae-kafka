@@ -150,14 +150,15 @@ class Link:
         if not message:
             message = 'Suicide method invoked.'
 
-        if hasattr(self, 'producer_thread'):
-            self.producer_thread.stop()
-        if hasattr(self, 'consumer_rpc_thread'):
-            self.consumer_rpc_thread.stop()
-        if hasattr(self, 'consumer_main_thread'):
-            self.consumer_main_thread.stop()
-        if hasattr(self, 'transform_thread'):
-            self.transform_thread.stop()
+        if self.kafka_endpoint:
+            if hasattr(self, 'producer_thread'):
+                self.producer_thread.stop()
+            if hasattr(self, 'consumer_rpc_thread'):
+                self.consumer_rpc_thread.stop()
+            if hasattr(self, 'consumer_main_thread'):
+                self.consumer_main_thread.stop()
+            if hasattr(self, 'transform_thread'):
+                self.transform_thread.stop()
 
         message += ' Exiting...'
         if exception:
@@ -737,7 +738,7 @@ class Link:
         self._output_messages = LinkQueue()
 
         common_properties = {
-            'bootstrap.servers': self.kafka_host_port,
+            'bootstrap.servers': self.kafka_endpoint,
             'compression.codec': 'snappy',
             'api.version.request': True
         }
@@ -829,41 +830,42 @@ class Link:
             self.suicide(
                 'Exception during the execution of "setup".', exception=True)
 
-        # Transform
-        num_threads = 5
-        if self.synchronous:
-            num_threads = 1
-        self.transform_rpc_executor = ThreadPool(self, num_threads)
-        self.transform_main_executor = ThreadPool(self, num_threads)
+        if self.kafka_endpoint:
+            # Transform
+            num_threads = 5
+            if self.synchronous:
+                num_threads = 1
+            self.transform_rpc_executor = ThreadPool(self, num_threads)
+            self.transform_main_executor = ThreadPool(self, num_threads)
 
-        transform_kwargs = {'target': self._input_handler}
-        self.transform_thread = Thread(
-            target=self._thread_target, kwargs=transform_kwargs)
-        self.transform_thread.start()
+            transform_kwargs = {'target': self._input_handler}
+            self.transform_thread = Thread(
+                target=self._thread_target, kwargs=transform_kwargs)
+            self.transform_thread.start()
 
-        # Kafka producer
-        if self.is_kafka_output:
-            producer_kwargs = {'target': self._kafka_producer}
-            self.producer_thread = Thread(
-                target=self._thread_target, kwargs=producer_kwargs)
-            self.producer_thread.start()
+            # Kafka producer
+            if self.is_kafka_output:
+                producer_kwargs = {'target': self._kafka_producer}
+                self.producer_thread = Thread(
+                    target=self._thread_target, kwargs=producer_kwargs)
+                self.producer_thread.start()
 
-        # Kafka RPC consumer
-        consumer_kwargs = {'target': self._kafka_consumer_rpc}
-        self.consumer_rpc_thread = Thread(
-            target=self._thread_target, kwargs=consumer_kwargs)
-        self.consumer_rpc_thread.start()
+            # Kafka RPC consumer
+            consumer_kwargs = {'target': self._kafka_consumer_rpc}
+            self.consumer_rpc_thread = Thread(
+                target=self._thread_target, kwargs=consumer_kwargs)
+            self.consumer_rpc_thread.start()
 
-        # Kafka main consumer
-        input_target = self._kafka_consumer_main
-        if self.is_custom_input:
-            input_target = self.custom_input
-        elif self.is_multiple_kafka_input and self.mki_mode == 'exp':
-            self._set_input_topic_exp_assignments()
-        consumer_kwargs = {'target': input_target}
-        self.consumer_main_thread = Thread(
-            target=self._thread_target, kwargs=consumer_kwargs)
-        self.consumer_main_thread.start()
+            # Kafka main consumer
+            input_target = self._kafka_consumer_main
+            if self.is_custom_input:
+                input_target = self.custom_input
+            elif self.is_multiple_kafka_input and self.mki_mode == 'exp':
+                self._set_input_topic_exp_assignments()
+            consumer_kwargs = {'target': input_target}
+            self.consumer_main_thread = Thread(
+                target=self._thread_target, kwargs=consumer_kwargs)
+            self.consumer_main_thread.start()
 
         self.logger.log('link started.')
 
@@ -922,10 +924,10 @@ class Link:
             '-b',
             '--kafka-bootstrap-server',
             action="store",
-            dest="kafka_host_port",
+            dest="kafka_endpoint",
             help='Kafka bootstrap server. \
                             E.g., "localhost:9092".',
-            required=True)
+            required=False)
 
         # Aerospike bootstrap server
         parser.add_argument(
@@ -969,7 +971,7 @@ class Link:
         if args.consumer_group:
             self.consumer_group = args.consumer_group
 
-        self.kafka_host_port = args.kafka_host_port
+        self.kafka_endpoint = args.kafka_endpoint
 
         if args.aerospike_host_port:
             aerospike_host_port = args.aerospike_host_port.split(':')
