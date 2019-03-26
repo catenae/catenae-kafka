@@ -405,7 +405,7 @@ class Link:
                 ])
 
     def _break_consumer_loop(self, subscription):
-        return len(subscription) > 1 and self.mki_mode != 'parity'
+        return len(subscription) > 1 and self.multi_kafka_input_mode != 'parity'
 
     def _commit_kafka_message(self, consumer, message):
         commited = False
@@ -472,7 +472,7 @@ class Link:
             self.logger.log('No input topics, waiting...', level='debug')
             time.sleep(1)
 
-        if self.mki_mode == 'parity':
+        if self.multi_kafka_input_mode == 'parity':
             self.input_topic_assignments = {-1: -1}
 
         # If topics are not specified, the first is used
@@ -495,9 +495,9 @@ class Link:
                 # Buffer for the current topic
                 message_buffer = []
 
-                if self.mki_mode == 'exp':
+                if self.multi_kafka_input_mode == 'exp':
                     subscription = [topic]
-                elif self.mki_mode == 'parity':
+                elif self.multi_kafka_input_mode == 'parity':
                     subscription = list(self.input_topics)
                 else:
                     self.suicide('Unknown priority mode')
@@ -548,7 +548,7 @@ class Link:
 
                             # Asynchronous (only one topic)
                             if len(subscription
-                                   ) == 1 or self.mki_mode == 'parity':
+                                   ) == 1 or self.multi_kafka_input_mode == 'parity':
                                 self._input_messages.put(message)
                                 continue
 
@@ -670,7 +670,7 @@ class Link:
         if input_topic not in self.input_topics:
             self.input_topics.append(input_topic)
             self.input_topics_lock.acquire()
-            if self.mki_mode == 'exp':
+            if self.multi_kafka_input_mode == 'exp':
                 self._set_input_topic_exp_assignments()
             self.changed_input_topics = True
             self.input_topics_lock.release()
@@ -680,7 +680,7 @@ class Link:
         if input_topic in self.input_topics:
             self.input_topics.remove(input_topic)
             self.input_topics_lock.acquire()
-            if self.mki_mode == 'exp':
+            if self.multi_kafka_input_mode == 'exp':
                 self._set_input_topic_exp_assignments()
             self.changed_input_topics = True
             self.input_topics_lock.release()
@@ -688,20 +688,105 @@ class Link:
 
     def start(self,
               link_mode=None,
-              mki_mode='parity',
+              multi_kafka_input_mode='parity',
               consumer_group=None,
-              asynchronous=True,
-              synchronous=None,
+              synchronous=False,
               consumer_timeout=20000,
-              random_consumer_group=False):
+              random_consumer_group=False,
+              num_rpc_threads=5,
+              num_main_threads=5,
+              sequential=False):
 
         if self.launched:
             return
         self.launched = True
 
-        self.link_mode = link_mode
+        self._set_link_mode_and_booleans(link_mode, multi_kafka_input_mode)
+        self._set_consumer_group(consumer_group, random_consumer_group)
+        self._set_execution_mode(synchronous,
+                                sequential,
+                                num_rpc_threads,
+                                num_main_threads)
 
-        # Link modes
+        self.consumer_timeout = consumer_timeout
+        self._set_kafka_common_properties()
+        self._set_connectors()
+
+        self._input_messages = LinkQueue()
+        self._output_messages = LinkQueue()
+        self.changed_input_topics = False
+
+        # Overwritable by a link
+        try:
+            self.setup()
+        except Exception:
+            self.suicide(
+                'Exception during the execution of "setup".', exception=True)
+
+        self._launch_threads()
+        self.logger.log('link started.')
+
+    def _set_connectors(self):
+        try:
+            self.aerospike = AerospikeConnector(self.aerospike_host,
+                                                self.aerospike_port)
+        except AttributeError:
+            self.aerospike = None
+
+        try:
+            self.mongodb = MongodbConnector(self.mongodb_host,
+                                            self.mongodb_port)
+        except AttributeError:
+            self.mongodb = None
+
+    def _launch_threads(self):
+        if not self.kafka_endpoint:
+            self.logger.log('Kafka disabled.')
+            return
+
+        # Transform
+        self.transform_rpc_executor = ThreadPool(self, self.num_rpc_threads)
+        self.transform_main_executor = ThreadPool(self, self.num_main_threads)
+
+        transform_kwargs = {'target': self._input_handler}
+        self.transform_thread = Thread(
+            target=self._thread_target, kwargs=transform_kwargs)
+        self.transform_thread.start()
+
+        # Kafka producer
+        if self.is_kafka_output:
+            producer_kwargs = {'target': self._kafka_producer}
+            self.producer_thread = Thread(
+                target=self._thread_target, kwargs=producer_kwargs)
+            self.producer_thread.start()
+
+        # Kafka RPC consumer
+        consumer_kwargs = {'target': self._kafka_consumer_rpc}
+        self.consumer_rpc_thread = Thread(
+            target=self._thread_target, kwargs=consumer_kwargs)
+        self.consumer_rpc_thread.start()
+
+        # Kafka main consumer
+        input_target = self._kafka_consumer_main
+        if self.is_custom_input:
+            input_target = self.custom_input
+        elif self.is_multiple_kafka_input and self.multi_kafka_input_mode == 'exp':
+            self._set_input_topic_exp_assignments()
+        consumer_kwargs = {'target': input_target}
+        self.consumer_main_thread = Thread(
+            target=self._thread_target, kwargs=consumer_kwargs)
+        self.consumer_main_thread.start()
+
+    def _set_consumer_group(self, consumer_group, random_consumer_group):
+        if random_consumer_group:
+            self.consumer_group = self.uid
+        elif consumer_group:
+            self.consumer_group = consumer_group
+        else:
+            self.consumer_group = self.__class__.__name__
+
+    def _set_link_mode_and_booleans(self, link_mode, multi_kafka_input_mode):
+        self.link_mode = link_mode
         self.is_custom_output = self.link_mode == Link.CUSTOM_OUTPUT \
             or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT
         self.is_kafka_output = not self.is_custom_output
@@ -712,31 +797,9 @@ class Link:
         self.is_kafka_input = self.is_multiple_kafka_input \
             or self.link_mode == Link.CUSTOM_OUTPUT
 
-        self.mki_mode = mki_mode
+        self.multi_kafka_input_mode = multi_kafka_input_mode
 
-        if not hasattr(self, 'consumer_group'):
-            if random_consumer_group:
-                self.consumer_group = self.uid
-            elif consumer_group:
-                self.consumer_group = consumer_group
-            else:
-                self.consumer_group = self.__class__.__name__
-
-        self.asynchronous = asynchronous
-        if synchronous:
-            self.asynchronous = not synchronous
-        self.synchronous = not self.asynchronous
-
-        if self.asynchronous:
-            self.logger.log('execution mode: asynchronous.')
-        else:
-            self.logger.log('execution mode: synchronous.')
-
-        self.consumer_timeout = consumer_timeout
-
-        self._input_messages = LinkQueue()
-        self._output_messages = LinkQueue()
-
+    def _set_kafka_common_properties(self):
         common_properties = {
             'bootstrap.servers': self.kafka_endpoint,
             'compression.codec': 'snappy',
@@ -809,65 +872,39 @@ class Link:
             # 'enable.idempotence': True, # not supported yet
         })
 
-        try:
-            self.aerospike = AerospikeConnector(self.aerospike_host,
-                                                self.aerospike_port)
-        except AttributeError:
-            self.aerospike = None
 
-        try:
-            self.mongodb = MongodbConnector(self.mongodb_host,
-                                            self.mongodb_port)
-        except AttributeError:
-            self.mongodb = None
+    def _set_execution_mode(self,
+                            synchronous,
+                            sequential,
+                            num_rpc_threads,
+                            num_main_threads):
+        self.sequential = sequential
 
-        self.changed_input_topics = False
+        if synchronous:
+            self.synchronous = True
+            self.sequential = True
+            self.asynchronous = False
+        else:
+            self.synchronous = False
+            self.asynchronous = True
 
-        # Overwritable by a link
-        try:
-            self.setup()
-        except Exception:
-            self.suicide(
-                'Exception during the execution of "setup".', exception=True)
+        if self.sequential:
+            num_rpc_threads = 1
+            num_main_threads = 1
 
-        if self.kafka_endpoint:
-            # Transform
-            num_threads = 5
+        self.num_rpc_threads = num_rpc_threads
+        self.num_main_threads = num_main_threads
+
+        if self.sequential:
             if self.synchronous:
-                num_threads = 1
-            self.transform_rpc_executor = ThreadPool(self, num_threads)
-            self.transform_main_executor = ThreadPool(self, num_threads)
-
-            transform_kwargs = {'target': self._input_handler}
-            self.transform_thread = Thread(
-                target=self._thread_target, kwargs=transform_kwargs)
-            self.transform_thread.start()
-
-            # Kafka producer
-            if self.is_kafka_output:
-                producer_kwargs = {'target': self._kafka_producer}
-                self.producer_thread = Thread(
-                    target=self._thread_target, kwargs=producer_kwargs)
-                self.producer_thread.start()
-
-            # Kafka RPC consumer
-            consumer_kwargs = {'target': self._kafka_consumer_rpc}
-            self.consumer_rpc_thread = Thread(
-                target=self._thread_target, kwargs=consumer_kwargs)
-            self.consumer_rpc_thread.start()
-
-            # Kafka main consumer
-            input_target = self._kafka_consumer_main
-            if self.is_custom_input:
-                input_target = self.custom_input
-            elif self.is_multiple_kafka_input and self.mki_mode == 'exp':
-                self._set_input_topic_exp_assignments()
-            consumer_kwargs = {'target': input_target}
-            self.consumer_main_thread = Thread(
-                target=self._thread_target, kwargs=consumer_kwargs)
-            self.consumer_main_thread.start()
-
-        self.logger.log('link started.')
+                self.logger.log('execution mode: synchronous (sequential).')
+            else:
+                self.logger.log('execution mode: asynchronous (sequential).')
+        else:
+            if self.synchronous:
+                self.logger.log('execution mode: synchronous.')
+            else:
+                self.logger.log('execution mode: asynchronous.')
 
     def _set_input_topic_exp_assignments(self):
         self.input_topic_assignments = {}
