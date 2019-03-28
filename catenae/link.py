@@ -44,7 +44,8 @@ class Link:
         self.input_topics_lock = Lock()
 
         # Preserve the id if the container restarts
-        if bool(os.environ['CATENAE_DOCKER']):
+        if 'CATENAE_DOCKER' in os.environ \
+        and bool(os.environ['CATENAE_DOCKER']):
             self.uid = os.environ['HOSTNAME']
         else:
             self.uid = utils.keccak256(str(uuid4()))[:12]
