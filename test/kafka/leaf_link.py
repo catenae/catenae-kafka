@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from catenae import Link, Electron, util
+from catenae import Link, Electron, utils
 import logging
 
 

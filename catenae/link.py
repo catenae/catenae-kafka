@@ -15,8 +15,8 @@ from . import utils
 from .electron import Electron
 from .callback import Callback
 from .logger import Logger
-from .linkqueue import LinkQueue
-from .threading import Thread, ThreadPool
+from .custom_queue import LinkQueue
+from .custom_threading import Thread, ThreadPool
 from .connectors.aerospike import AerospikeConnector
 from .connectors.mongodb import MongodbConnector
 from .connectors.local import LocalConnector

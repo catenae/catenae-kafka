@@ -1,48 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import sys
-import traceback
-import logging
-import os
 from web3 import Web3
 import json
 import time
-from deprecated import deprecated
-from collections import OrderedDict
-from orderedset import OrderedSet
-
-
-class CircularOrderedDict(OrderedDict):
-    def __init__(self, size):
-        super(CircularOrderedDict, self).__init__()
-        self.size = size
-        self._truncate()
-
-    def __setitem__(self, key, value):
-        super(CircularOrderedDict, self).__setitem__(key, value)
-        self._truncate()
-
-    def _truncate(self):
-        if self.size:
-            while len(self) > self.size:
-                self.popitem(last=False)
-
-
-class CircularOrderedSet(OrderedSet):
-    def __init__(self, size):
-        super(CircularOrderedSet, self).__init__()
-        self.size = size
-        self._truncate()
-
-    def add(self, value):
-        super(CircularOrderedSet, self).add(value)
-        self._truncate()
-
-    def _truncate(self):
-        if self.size:
-            while len(self) > self.size:
-                self.pop(last=False)
+import hashlib
 
 
 def get_timestamp():
@@ -53,12 +15,6 @@ def get_timestamp_ms():
     return int(round(time.time() * 1000))
 
 
-def keccak256(item):
-    if type(item) != str:
-        raise ValueError
-    return Web3.sha3(text=item).hex()[2:]
-
-
 def dump_dict(dict):
     return json.dumps(dict, separators=(',', ':'), ensure_ascii=False)
 
@@ -67,12 +23,37 @@ def load_dict(str_dict):
     return json.loads(str_dict, object_pairs_hook=OrderedDict)
 
 
-def get_tuples_from_dict(item):
-    for key, value in item.items():
-        if type(value) == dict:
-            yield from get_tuples_from_dict(value)
-        elif type(value) == list:
-            for v in value:
-                yield from get_tuples_from_dict(v)
-        else:
-            yield key, value
+def keccak256(item):
+    if type(item) != str:
+        raise ValueError
+    return Web3.sha3(text=item).hex()[2:]
+
+
+def b2bsha3_512(text):
+    if type(text) != str:
+        raise ValueError
+    return _blake2b_512(_sha3_512(text) + text)
+
+
+def b2bsha3_256(text):
+    if type(text) != str:
+        raise ValueError
+    return _blake2b_256(_sha3_512(text) + text)
+
+
+def _blake2b_512(text):
+    if type(text) != str:
+        raise ValueError
+    return hashlib.blake2b(text.encode('utf-8'), digest_size=64).hexdigest()
+
+
+def _blake2b_256(text):
+    if type(text) != str:
+        raise ValueError
+    return hashlib.blake2b(text.encode('utf-8'), digest_size=32).hexdigest()
+
+
+def _sha3_512(text):
+    if type(text) != str:
+        raise ValueError
+    return hashlib.sha3_512(text.encode('utf-8')).hexdigest()
