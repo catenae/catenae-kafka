@@ -117,7 +117,7 @@ class Link:
     def _rpc_call(self, electron, commit_kafka_message_callback):
         if not 'method' in electron.value:
             self.logger.log(
-                f'Invalid RPC invocation: {electron.value}', level='error')
+                f'invalid RPC invocation: {electron.value}', level='error')
             return
 
         try:
@@ -141,7 +141,7 @@ class Link:
 
         except Exception:
             self.logger.log(
-                'error when invoking a RPC method.', level='exception')
+                'error when invoking a RPC method', level='exception')
         finally:
             if self.synchronous:
                 commit_kafka_message_callback.execute()
@@ -149,7 +149,7 @@ class Link:
 
     def suicide(self, message=None, exception=False, exit_code=1):
         if not message:
-            message = 'Suicide method invoked.'
+            message = 'Suicide method invoked'
 
         if self.kafka_endpoint:
             if hasattr(self, 'producer_thread'):
@@ -236,7 +236,7 @@ class Link:
             # If the destiny topic is not specified, the first is used
             if not electron.topic:
                 if not self.output_topics:
-                    self.suicide('Electron / default output topic unset.')
+                    self.suicide('Electron / default output topic unset')
                 electron.topic = self.output_topics[0]
 
             # Electrons are serialized
@@ -263,10 +263,10 @@ class Link:
                     # Wait for all messages in the Producer queue to be delivered.
                     self.producer.flush()
 
-                self.logger.log('electron produced.', level='debug')
+                self.logger.log('electron produced', level='debug')
 
             except Exception:
-                self.suicide('Kafka producer error.', exception=True)
+                self.suicide('Kafka producer error', exception=True)
 
             # Synchronous
             if self.synchronous:
@@ -280,7 +280,7 @@ class Link:
             self.logger.log('electron transformed', level='debug')
         except Exception:
             self.logger.log(
-                'Exception during the execution of "transform".',
+                'exception during the execution of "transform"',
                 level='exception')
             return
 
@@ -421,13 +421,13 @@ class Link:
         while not commited:
             if attempts > 1:
                 self.logger.log(
-                    f'Trying to commit the message with value {message.value()} (attempt {attempts})',
+                    f'trying to commit the message with value {message.value()} (attempt {attempts})',
                     level='warn')
             try:
                 consumer.commit(**{'message': message, 'asynchronous': False})
             except Exception:
                 self.logger.log(
-                    f'Exception when trying to commit the message with value {message.value()}',
+                    f'exception when trying to commit the message with value {message.value()}',
                     level='exception')
                 continue
             commited = True
@@ -468,8 +468,8 @@ class Link:
                 try:
                     consumer.close()
                 finally:
-                    self.logger.log('stopped RPC input.')
-                    self.suicide('Kafka consumer error.', exception=True)
+                    self.logger.log('stopped RPC input')
+                    self.suicide('Kafka consumer error', exception=True)
 
     def _kafka_consumer_main(self):
         # Since the list
@@ -595,8 +595,8 @@ class Link:
                     try:
                         consumer.close()
                     finally:
-                        self.logger.log('stopped main input.')
-                        self.suicide('Kafka consumer error.', exception=True)
+                        self.logger.log('stopped main input')
+                        self.suicide('Kafka consumer error', exception=True)
 
     def _get_index_assignment(self, window_size, index, elements_no, base=1.7):
         """
@@ -644,12 +644,12 @@ class Link:
                         Electron(
                             value=item, topic=topic, unpack_if_string=True))
         except Exception:
-            self.logger.log('', level='exception')
+            self.logger.log(level='exception')
 
     def generator(self):
         """ If the generator method was not overrided in the main script an
         error will be printed and the execution will finish """
-        self.suicide('Undefined "generator" method.')
+        self.suicide('Undefined "generator" method')
 
     def custom_input(self):
         """ If a custom_input method is not defined by the main script,
@@ -668,7 +668,7 @@ class Link:
                 target()
         except Exception:
             self.suicide(
-                f'Exception during the execution of "{target.__name__}".',
+                f'Exception during the execution of "{target.__name__}"',
                 exception=True)
 
     def add_input_topic(self, input_topic):
@@ -679,7 +679,7 @@ class Link:
                 self._set_input_topic_exp_assignments()
             self.changed_input_topics = True
             self.input_topics_lock.release()
-            self.logger.log(f'added input {input_topic}.')
+            self.logger.log(f'added input {input_topic}')
 
     def remove_input_topic(self, input_topic):
         if input_topic in self.input_topics:
@@ -689,7 +689,7 @@ class Link:
                 self._set_input_topic_exp_assignments()
             self.changed_input_topics = True
             self.input_topics_lock.release()
-            self.logger.log(f'removed input {input_topic}.')
+            self.logger.log(f'removed input {input_topic}')
 
     def start(self,
               link_mode=None,
@@ -726,10 +726,10 @@ class Link:
             self.setup()
         except Exception:
             self.suicide(
-                'Exception during the execution of "setup".', exception=True)
+                'Exception during the execution of "setup"', exception=True)
 
         self._launch_threads()
-        self.logger.log('link started.')
+        self.logger.log(f'link {self.uid} is running')
 
     def _set_connectors(self):
         try:
@@ -746,7 +746,7 @@ class Link:
 
     def _launch_threads(self):
         if not self.kafka_endpoint:
-            self.logger.log('Kafka disabled.')
+            self.logger.log('Kafka disabled')
             return
 
         # Transform
@@ -902,20 +902,20 @@ class Link:
 
         if self.sequential:
             if self.synchronous:
-                self.logger.log('execution mode: synchronous (sequential).')
+                self.logger.log('execution mode: synchronous (sequential)')
             else:
-                self.logger.log('execution mode: asynchronous (sequential).')
+                self.logger.log('execution mode: asynchronous (sequential)')
         else:
             if self.synchronous:
-                self.logger.log('execution mode: synchronous.')
+                self.logger.log('execution mode: synchronous')
             else:
-                self.logger.log('execution mode: asynchronous.')
+                self.logger.log('execution mode: asynchronous')
 
     def _set_input_topic_exp_assignments(self):
         self.input_topic_assignments = {}
         window_size = 900  # in seconds, 15 minutes
         topics_no = len(self.input_topics)
-        self.logger.log('Input topics time assingments:')
+        self.logger.log('input topics time assingments:')
         for i, topic in enumerate(self.input_topics):
             topic_assingment = \
                 self._get_index_assignment(window_size, i, topics_no)
@@ -936,7 +936,7 @@ class Link:
             action="store",
             dest="input_topics",
             help='Kafka input topics. Several topics ' +
-            'can be specified separated by commas.',
+            'can be specified separated by commas',
             required=False)
         # Output topic
         parser.add_argument(
@@ -946,7 +946,7 @@ class Link:
             action="store",
             dest="output_topics",
             help='Kafka output topics. Several topics ' +
-            'can be specified separated by commas.',
+            'can be specified separated by commas',
             required=False)
 
         # Kafka consumer group
@@ -956,7 +956,7 @@ class Link:
             action="store",
             dest="consumer_group",
             help='Kafka consumer group. \
-                            E.g., "filter_group".',
+                            E.g., "filter_group"',
             required=False)
 
         # Kafka bootstrap server
@@ -968,7 +968,7 @@ class Link:
             action="store",
             dest="kafka_endpoint",
             help='Kafka bootstrap server. \
-                            E.g., "localhost:9092".',
+                            E.g., "localhost:9092"',
             required=False)
 
         # Aerospike bootstrap server
@@ -979,7 +979,7 @@ class Link:
             action="store",
             dest="aerospike_host_port",
             help='Aerospike bootstrap server. \
-                            E.g., "localhost:3000".',
+                            E.g., "localhost:3000"',
             required=False)
 
         # MongoDB server
@@ -989,7 +989,7 @@ class Link:
             action="store",
             dest="mongodb_host_port",
             help='MongoDB server. \
-                            E.g., "localhost:27017".',
+                            E.g., "localhost:27017"',
             required=False)
 
         parsed_args = parser.parse_known_args()
