@@ -1,2 +1,7 @@
 twine
 setuptools
+confluent_kafka
+web3
+aerospike
+pymongo
+orderedset
