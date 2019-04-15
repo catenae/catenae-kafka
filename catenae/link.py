@@ -5,7 +5,7 @@ import sys
 import math
 import re
 from threading import Lock
-import _pickle as pickle
+from pickle5 import pickle
 import time
 import argparse
 from uuid import uuid4
@@ -227,7 +227,8 @@ class Link:
                 if type(electron.key) == str:
                     partition_key = electron.key.encode('utf-8')
                 else:
-                    partition_key = pickle.dumps(electron.key, protocol=4)
+                    partition_key = pickle.dumps(electron.key,
+                                                 protocol=pickle.HIGHEST_PROTOCOL)
             # Same partition key for the current instance if sequential mode
             # is enabled so consumer can get messages in order
             elif self.sequential:
@@ -244,7 +245,7 @@ class Link:
                 serialized_electron = electron.value
             else:
                 serialized_electron = pickle.dumps(
-                    electron.get_sendable(), protocol=4)
+                    electron.get_sendable(), protocol=pickle.HIGHEST_PROTOCOL)
 
             try:
                 # If partition_key = None, the partition.assignment.strategy

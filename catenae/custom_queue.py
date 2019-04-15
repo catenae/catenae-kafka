@@ -16,12 +16,12 @@ class LinkQueue(Queue):
         super().__init__(maxsize=-1)
 
 
-class Queue:
+class CustomQueue:
     class EmptyError(Exception):
         def __init__(self, message=None):
             if message == None:
                 message = 'The queue is empty'
-            super(Queue.EmptyError, self).__init__(message)
+            super(CustomQueue.EmptyError, self).__init__(message)
 
     def __init__(self, size=0, circular=False):
         self._size = size
@@ -50,7 +50,7 @@ class Queue:
                 return
             self._lock.release()
             if not block:
-                raise Queue.EmptyError
+                raise CustomQueue.EmptyError
             time.sleep(0.1)
 
     def get(self, block=True, timeout=None):
@@ -63,5 +63,5 @@ class Queue:
                 return item
             self._lock.release()
             if not block:
-                raise Queue.EmptyError
+                raise CustomQueue.EmptyError
             time.sleep(0.1)
