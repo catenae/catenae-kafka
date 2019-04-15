@@ -783,6 +783,8 @@ class Link:
         self.consumer_main_thread.start()
 
     def _set_consumer_group(self, consumer_group, random_consumer_group):
+        if self.consumer_group:
+            return
         if random_consumer_group:
             self.consumer_group = self.uid
         elif consumer_group:
