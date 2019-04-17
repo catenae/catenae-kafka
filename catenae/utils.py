@@ -5,6 +5,7 @@ from web3 import Web3
 import json
 import time
 import hashlib
+from collections import OrderedDict
 
 
 def get_timestamp():
@@ -15,8 +16,12 @@ def get_timestamp_ms():
     return int(round(time.time() * 1000))
 
 
-def dump_dict(dict):
-    return json.dumps(dict, separators=(',', ':'), ensure_ascii=False)
+def dump_dict_pretty(input_dict):
+    return json.dumps(input_dict, separators=(',', ':'), indent=4, ensure_ascii=False)
+
+
+def dump_dict(input_dict):
+    return json.dumps(input_dict, separators=(',', ':'), ensure_ascii=False)
 
 
 def load_dict(str_dict):
