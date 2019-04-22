@@ -6,9 +6,7 @@ import json
 
 
 class MongodbConnector:
-
-    def __init__(self, host, port, default_database=None,
-                 default_collection=None, connect=False):
+    def __init__(self, host, port, default_database=None, default_collection=None, connect=False):
         self.config = {'host': host, 'port': port}
         if default_database:
             self.default_database = default_database
@@ -21,15 +19,16 @@ class MongodbConnector:
     def _get_collection(self, database_name, collection_name):
         self.open_connection()
         database_name, collection_name = \
-            self._set_database_collection_names(database_name,
+            self._get_database_and_collection_names(database_name,
                                                 collection_name)
         database = getattr(self.client, database_name)
         collection = getattr(database, collection_name)
         return collection
 
-    def set_defaults(self, database_name, database_collection):
+    def set_defaults(self, database_name, database_collection=None):
         self.default_database = database_name
-        self.default_collection = database_collection
+        if database_collection != None:
+            self.default_collection = database_collection
 
     def open_connection(self):
         if not self.client:
@@ -39,15 +38,14 @@ class MongodbConnector:
         if self.client:
             self.client.close()
 
-    def _set_database_collection_names(self, database_name, collection_name):
-        if not database_name:
+    def _get_database_and_collection_names(self, database_name, collection_name):
+        if not database_name and hasattr(self, 'default_database'):
             database_name = self.default_database
-        if not collection_name:
+        if not collection_name and hasattr(self, 'default_collection'):
             collection_name = self.default_collection
         return database_name, collection_name
 
-    def get_and_close(self, query=None, database_name=None,
-                      collection_name=None):
+    def get_and_close(self, query=None, database_name=None, collection_name=None):
         result = self.get(query, database_name, collection_name)
         self.close_connection()
         return result
@@ -58,8 +56,14 @@ class MongodbConnector:
             return False
         return True
 
-    def create_index(self, attribute=None, keys=None, database_name=None, collection_name=None,
-                     unique=False, type_='asc', background=True):
+    def create_index(self,
+                     attribute=None,
+                     keys=None,
+                     database_name=None,
+                     collection_name=None,
+                     unique=False,
+                     type_='asc',
+                     background=True):
         if not keys and not attribute:
             raise TypeError
         if not keys:
@@ -71,9 +75,17 @@ class MongodbConnector:
         collection = self._get_collection(database_name, collection_name)
         collection.create_index(keys, unique=unique, background=background)
 
-    def get(self, query=None, database_name=None, collection_name=None, sort=None,
-            sort_attribute=None, sort_type=None, limit=None, index=None,
-            index_attribute=None, index_type=None):
+    def get(self,
+            query=None,
+            database_name=None,
+            collection_name=None,
+            sort=None,
+            sort_attribute=None,
+            sort_type=None,
+            limit=None,
+            index=None,
+            index_attribute=None,
+            index_type=None):
         collection = self._get_collection(database_name, collection_name)
         if sort_attribute and sort_type:
             if sort_type == 'desc':
@@ -100,8 +112,14 @@ class MongodbConnector:
             result = result.limit(limit)
         return result
 
-    def get_random(self, query=None, database_name=None, collection_name=None,
-                   sort=None, sort_attribute=None, sort_type=None, limit=1):
+    def get_random(self,
+                   query=None,
+                   database_name=None,
+                   collection_name=None,
+                   sort=None,
+                   sort_attribute=None,
+                   sort_type=None,
+                   limit=1):
         collection = self._get_collection(database_name, collection_name)
         if sort_attribute and sort_type:
             if sort_type == 'desc':
@@ -123,7 +141,7 @@ class MongodbConnector:
 
     def push(self, query, key, value, database_name=None, collection_name=None):
         collection = self._get_collection(database_name, collection_name)
-        collection.update_one(query, {'$push': { key: { '$each': value }}}, upsert=True)
+        collection.update_one(query, {'$push': {key: {'$each': value}}}, upsert=True)
 
     def put(self, value, query=None, database_name=None, collection_name=None):
         if query:
