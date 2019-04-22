@@ -835,9 +835,38 @@ class Link:
     def in_time(start_time, assigned_time):
         return (start_time - utils.get_timestamp_ms()) < assigned_time
 
-    def _load_args(self):
-        parser = argparse.ArgumentParser()
-        # Input topic
+    def _parse_aerospike_args(self, parser):
+        parser.add_argument('-a',
+                            '--aerospike',
+                            '--aerospike-bootstrap-server',
+                            action="store",
+                            dest="aerospike_host_port",
+                            help='Aerospike bootstrap server. \
+                            E.g., "localhost:3000"',
+                            required=False)
+
+    def _initialize_aerospike_attributes(self, parsed_args):
+        if parsed_args.aerospike_host_port:
+            aerospike_host_port = parsed_args.aerospike_host_port.split(':')
+            self.aerospike_host = aerospike_host_port[0]
+            self.aerospike_port = int(aerospike_host_port[1])
+
+    def _parse_mongodb_args(self, parser):
+        parser.add_argument('-m',
+                            '--mongodb',
+                            action="store",
+                            dest="mongodb_host_port",
+                            help='MongoDB server. \
+                            E.g., "localhost:27017"',
+                            required=False)
+
+    def _initialize_mongodb_attributes(self, parsed_args):
+        if parsed_args.mongodb_host_port:
+            mongodb_host_port = parsed_args.mongodb_host_port.split(':')
+            self.mongodb_host = mongodb_host_port[0]
+            self.mongodb_port = int(mongodb_host_port[1])
+
+    def _parse_kafka_args(self, parser):
         parser.add_argument('-i',
                             '--input',
                             '--input-topic',
@@ -845,7 +874,6 @@ class Link:
                             dest="input_topics",
                             help='Kafka input topics. Several topics ' + 'can be specified separated by commas',
                             required=False)
-        # Output topic
         parser.add_argument('-o',
                             '--output',
                             '--output-topics',
@@ -853,8 +881,6 @@ class Link:
                             dest="output_topics",
                             help='Kafka output topics. Several topics ' + 'can be specified separated by commas',
                             required=False)
-
-        # Kafka consumer group
         parser.add_argument('-g',
                             '--consumer-group',
                             action="store",
@@ -862,8 +888,6 @@ class Link:
                             help='Kafka consumer group. \
                             E.g., "filter_group"',
                             required=False)
-
-        # Kafka bootstrap server
         parser.add_argument('-k',
                             '--kafka',
                             '-b',
@@ -874,54 +898,33 @@ class Link:
                             E.g., "localhost:9092"',
                             required=False)
 
-        # Aerospike bootstrap server
-        parser.add_argument('-a',
-                            '--aerospike',
-                            '--aerospike-bootstrap-server',
-                            action="store",
-                            dest="aerospike_host_port",
-                            help='Aerospike bootstrap server. \
-                            E.g., "localhost:3000"',
-                            required=False)
-
-        # MongoDB server
-        parser.add_argument('-m',
-                            '--mongodb',
-                            action="store",
-                            dest="mongodb_host_port",
-                            help='MongoDB server. \
-                            E.g., "localhost:27017"',
-                            required=False)
-
-        parsed_args = parser.parse_known_args()
-        args = parsed_args[0]
-        self.args = parsed_args[1]
-
-        # If no commas, a list with 1 element is returned
-        # Input topics
+    def _initialize_kafka_attributes(self, args):
         if args.input_topics:
             self.input_topics = args.input_topics.split(',')
         else:
             self.input_topics = []
 
-        # Output topics
         if args.output_topics:
             self.output_topics = args.output_topics.split(',')
         else:
             self.output_topics = []
 
-        # Consumer group
         if args.consumer_group:
             self.consumer_group = args.consumer_group
 
         self.kafka_endpoint = args.kafka_endpoint
 
-        if args.aerospike_host_port:
-            aerospike_host_port = args.aerospike_host_port.split(':')
-            self.aerospike_host = aerospike_host_port[0]
-            self.aerospike_port = int(aerospike_host_port[1])
+    def _load_args(self):
+        parser = argparse.ArgumentParser()
 
-        if args.mongodb_host_port:
-            mongodb_host_port = args.mongodb_host_port.split(':')
-            self.mongodb_host = mongodb_host_port[0]
-            self.mongodb_port = int(mongodb_host_port[1])
+        self._parse_kafka_args(parser)
+        self._parse_aerospike_args(parser)
+        self._parse_mongodb_args(parser)
+
+        parsed_args = parser.parse_known_args()
+        catenae_args = parsed_args[0]
+        self.args = parsed_args[1]
+
+        self._initialize_kafka_attributes(catenae_args)
+        self._initialize_aerospike_attributes(catenae_args)
+        self._initialize_mongodb_attributes(catenae_args)
