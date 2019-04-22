@@ -52,4 +52,4 @@ class MiddleLinkAsync(Link):
 
 
 if __name__ == "__main__":
-    MiddleLinkAsync(log_level='DEBUG').start(consumer_group='custom_group_1')
+    MiddleLinkAsync(log_level='DEBUG', consumer_group='custom_group_1').start()

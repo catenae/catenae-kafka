@@ -18,4 +18,4 @@ class LeafLink(Link):
 
 
 if __name__ == "__main__":
-    LeafLink(log_level='DEBUG').start(link_mode=Link.CUSTOM_OUTPUT, random_consumer_group=True)
+    LeafLink(log_level='DEBUG', link_mode=Link.CUSTOM_OUTPUT, random_consumer_group=True).start()

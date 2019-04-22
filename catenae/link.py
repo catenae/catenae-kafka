@@ -23,20 +23,23 @@ from .connectors.local import LocalConnector
 
 
 class Link:
-
-    # Multiple kafka inputs
     MULTIPLE_KAFKA_INPUTS = 0
-
-    # Custom output without multiple kafka inputs
     CUSTOM_OUTPUT = 1
-
-    # Custom input with multiple kafka inputs
     MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT = 2
-
-    # Custom input
     CUSTOM_INPUT = 3
 
-    def __init__(self, log_level='INFO'):
+    def __init__(self,
+                 log_level='INFO',
+                 link_mode=None,
+                 multi_kafka_input_mode='parity',
+                 consumer_group=None,
+                 synchronous=False,
+                 consumer_timeout=20000,
+                 random_consumer_group=False,
+                 num_rpc_threads=5,
+                 num_main_threads=5,
+                 sequential=False):
+
         log_level = log_level.upper()
         self.logger = Logger(self, log_level)
         self.logger.log(f'log level: {log_level}')
@@ -58,6 +61,10 @@ class Link:
         self.rpc_topics = [self.rpc_instance_topic, self.rpc_group_topic, self.rpc_broadcast_topic]
 
         self._load_args()
+        self._set_link_mode_and_booleans(link_mode, multi_kafka_input_mode)
+        self._set_consumer_group(consumer_group, random_consumer_group)
+        self._set_execution_mode(synchronous, sequential, num_rpc_threads, num_main_threads)
+        self.consumer_timeout = consumer_timeout
 
     def _loop_task(self, thread, target, args=None, kwargs=None, interval=None, wait=False):
         if wait:
@@ -638,26 +645,11 @@ class Link:
             self.input_topics_lock.release()
             self.logger.log(f'removed input {input_topic}')
 
-    def start(self,
-              link_mode=None,
-              multi_kafka_input_mode='parity',
-              consumer_group=None,
-              synchronous=False,
-              consumer_timeout=20000,
-              random_consumer_group=False,
-              num_rpc_threads=5,
-              num_main_threads=5,
-              sequential=False):
-
+    def start(self):
         if self.launched:
             return
         self.launched = True
 
-        self._set_link_mode_and_booleans(link_mode, multi_kafka_input_mode)
-        self._set_consumer_group(consumer_group, random_consumer_group)
-        self._set_execution_mode(synchronous, sequential, num_rpc_threads, num_main_threads)
-
-        self.consumer_timeout = consumer_timeout
         self._set_kafka_common_properties()
         self._set_connectors()
 

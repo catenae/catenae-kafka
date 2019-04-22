@@ -66,4 +66,4 @@ class MiddleLinkSync(Link):
 
 
 if __name__ == "__main__":
-    MiddleLinkSync(log_level='DEBUG').start(consumer_timeout=20000, synchronous=True)
+    MiddleLinkSync(log_level='DEBUG', consumer_timeout=20000, synchronous=True).start()

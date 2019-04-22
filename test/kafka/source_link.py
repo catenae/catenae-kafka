@@ -66,4 +66,4 @@ class SourceLink(Link):
 
 
 if __name__ == "__main__":
-    SourceLink().start(link_mode=Link.CUSTOM_INPUT)
+    SourceLink(link_mode=Link.CUSTOM_INPUT).start()
