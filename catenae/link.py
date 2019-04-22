@@ -31,14 +31,14 @@ class Link:
     def __init__(self,
                  log_level='INFO',
                  link_mode=None,
-                 multi_kafka_input_mode='parity',
+                 input_mode='parity',
                  consumer_group=None,
-                 synchronous=False,
-                 consumer_timeout=20000,
+                 consumer_timeout=20,
                  random_consumer_group=False,
+                 synchronous=False,
+                 sequential=False,
                  num_rpc_threads=5,
-                 num_main_threads=5,
-                 sequential=False):
+                 num_main_threads=5):
 
         log_level = log_level.upper()
         self.logger = Logger(self, log_level)
@@ -61,10 +61,11 @@ class Link:
         self.rpc_topics = [self.rpc_instance_topic, self.rpc_group_topic, self.rpc_broadcast_topic]
 
         self._load_args()
-        self._set_link_mode_and_booleans(link_mode, multi_kafka_input_mode)
+
+        self._set_link_mode_and_booleans(link_mode)
         self._set_consumer_group(consumer_group, random_consumer_group)
-        self._set_execution_mode(synchronous, sequential, num_rpc_threads, num_main_threads)
-        self.consumer_timeout = consumer_timeout
+        self._set_execution_opts(synchronous, sequential, num_rpc_threads, num_main_threads, input_mode)
+        self._set_consumer_timeout(consumer_timeout)
 
     def _loop_task(self, thread, target, args=None, kwargs=None, interval=None, wait=False):
         if wait:
@@ -383,7 +384,7 @@ class Link:
                                                     [electron, commit_kafka_message_callback, transform_callback])
 
     def _break_consumer_loop(self, subscription):
-        return len(subscription) > 1 and self.multi_kafka_input_mode != 'parity'
+        return len(subscription) > 1 and self.input_mode != 'parity'
 
     def _commit_kafka_message(self, consumer, message):
         commited = False
@@ -446,7 +447,7 @@ class Link:
             self.logger.log('No input topics, waiting...', level='debug')
             time.sleep(1)
 
-        if self.multi_kafka_input_mode == 'parity':
+        if self.input_mode == 'parity':
             self.input_topic_assignments = {-1: -1}
 
         # If topics are not specified, the first is used
@@ -469,9 +470,9 @@ class Link:
                 # Buffer for the current topic
                 message_buffer = []
 
-                if self.multi_kafka_input_mode == 'exp':
+                if self.input_mode == 'exp':
                     subscription = [topic]
-                elif self.multi_kafka_input_mode == 'parity':
+                elif self.input_mode == 'parity':
                     subscription = list(self.input_topics)
                 else:
                     self.suicide('Unknown priority mode')
@@ -515,7 +516,7 @@ class Link:
                                 continue
 
                             # Asynchronous (only one topic)
-                            if len(subscription) == 1 or self.multi_kafka_input_mode == 'parity':
+                            if len(subscription) == 1 or self.input_mode == 'parity':
                                 self._input_messages.put(message)
                                 continue
 
@@ -629,7 +630,7 @@ class Link:
         if input_topic not in self.input_topics:
             self.input_topics.append(input_topic)
             self.input_topics_lock.acquire()
-            if self.multi_kafka_input_mode == 'exp':
+            if self.input_mode == 'exp':
                 self._set_input_topic_exp_assignments()
             self.changed_input_topics = True
             self.input_topics_lock.release()
@@ -639,7 +640,7 @@ class Link:
         if input_topic in self.input_topics:
             self.input_topics.remove(input_topic)
             self.input_topics_lock.acquire()
-            if self.multi_kafka_input_mode == 'exp':
+            if self.input_mode == 'exp':
                 self._set_input_topic_exp_assignments()
             self.changed_input_topics = True
             self.input_topics_lock.release()
@@ -706,7 +707,7 @@ class Link:
         input_target = self._kafka_consumer_main
         if self.is_custom_input:
             input_target = self.custom_input
-        elif self.is_multiple_kafka_input and self.multi_kafka_input_mode == 'exp':
+        elif self.is_multiple_kafka_input and self.input_mode == 'exp':
             self._set_input_topic_exp_assignments()
         consumer_kwargs = {'target': input_target}
         self.consumer_main_thread = Thread(target=self._thread_target, kwargs=consumer_kwargs)
@@ -714,7 +715,9 @@ class Link:
 
     def _set_consumer_group(self, consumer_group, random_consumer_group):
         if hasattr(self, 'consumer_group'):
-            return
+            consumer_group = self.consumer_group
+        if hasattr(self, 'random_consumer_group'):
+            random_consumer_group = self.random_consumer_group
         if random_consumer_group:
             self.consumer_group = self.uid
         elif consumer_group:
@@ -722,8 +725,9 @@ class Link:
         else:
             self.consumer_group = self.__class__.__name__
 
-    def _set_link_mode_and_booleans(self, link_mode, multi_kafka_input_mode):
-        self.link_mode = link_mode
+    def _set_link_mode_and_booleans(self, link_mode):
+        if not hasattr(self, 'link_mode'):
+            self.link_mode = link_mode
         self.is_custom_output = self.link_mode == Link.CUSTOM_OUTPUT \
             or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT
         self.is_kafka_output = not self.is_custom_output
@@ -733,8 +737,6 @@ class Link:
                 or self.link_mode == Link.MULTIPLE_KAFKA_INPUTS
         self.is_kafka_input = self.is_multiple_kafka_input \
             or self.link_mode == Link.CUSTOM_OUTPUT
-
-        self.multi_kafka_input_mode = multi_kafka_input_mode
 
     def _set_kafka_common_properties(self):
         common_properties = {
@@ -783,8 +785,17 @@ class Link:
             # 'enable.idempotence': True, # not supported yet
         })
 
-    def _set_execution_mode(self, synchronous, sequential, num_rpc_threads, num_main_threads):
-        self.sequential = sequential
+    def _set_execution_opts(self, synchronous, sequential, num_rpc_threads, num_main_threads, input_mode):
+        if hasattr(self, 'sequential'):
+            sequential = self.sequential
+        if hasattr(self, 'synchronous'):
+            synchronous = self.synchronous
+        elif hasattr(self, 'asynchronous'):
+            synchronous = not self.asynchronous
+        if hasattr(self, 'num_rpc_threads'):
+            num_rpc_threads = self.num_rpc_threads
+        if hasattr(self, 'num_main_threads'):
+            num_main_threads = self.num_main_threads
 
         if synchronous:
             self.synchronous = True
@@ -792,14 +803,17 @@ class Link:
             self.asynchronous = False
         else:
             self.synchronous = False
+            self.sequential = sequential
             self.asynchronous = True
 
-        if self.sequential:
-            num_rpc_threads = 1
-            num_main_threads = 1
-
-        self.num_rpc_threads = num_rpc_threads
-        self.num_main_threads = num_main_threads
+        if not hasattr(self, 'num_rpc_threads'):
+            if self.sequential:
+                num_rpc_threads = 1
+            self.num_rpc_threads = num_rpc_threads
+        if not hasattr(self, 'num_main_threads'):
+            if self.sequential:
+                num_main_threads = 1
+            self.num_main_threads = num_main_threads
 
         if self.sequential:
             if self.synchronous:
@@ -811,6 +825,14 @@ class Link:
                 self.logger.log('execution mode: synchronous')
             else:
                 self.logger.log('execution mode: asynchronous')
+
+        if not hasattr(self, 'input_mode'):
+            self.input_mode = input_mode
+
+    def _set_consumer_timeout(self, consumer_timeout):
+        if not hasattr(self, 'consumer_timeout'):
+            self.consumer_timeout = consumer_timeout
+        self.consumer_timeout = self.consumer_timeout * 1000
 
     def _set_input_topic_exp_assignments(self):
         self.input_topic_assignments = {}
@@ -827,7 +849,8 @@ class Link:
     def in_time(start_time, assigned_time):
         return (start_time - utils.get_timestamp_ms()) < assigned_time
 
-    def _parse_aerospike_args(self, parser):
+    @staticmethod
+    def _parse_aerospike_args(parser):
         parser.add_argument('-a',
                             '--aerospike',
                             '--aerospike-bootstrap-server',
@@ -843,7 +866,8 @@ class Link:
             self.aerospike_host = aerospike_host_port[0]
             self.aerospike_port = int(aerospike_host_port[1])
 
-    def _parse_mongodb_args(self, parser):
+    @staticmethod
+    def _parse_mongodb_args(parser):
         parser.add_argument('-m',
                             '--mongodb',
                             action="store",
@@ -858,36 +882,37 @@ class Link:
             self.mongodb_host = mongodb_host_port[0]
             self.mongodb_port = int(mongodb_host_port[1])
 
-    def _parse_kafka_args(self, parser):
+    @staticmethod
+    def _parse_kafka_args(parser):
         parser.add_argument('-i',
                             '--input',
-                            '--input-topic',
                             action="store",
                             dest="input_topics",
                             help='Kafka input topics. Several topics ' + 'can be specified separated by commas',
                             required=False)
         parser.add_argument('-o',
                             '--output',
-                            '--output-topics',
                             action="store",
                             dest="output_topics",
                             help='Kafka output topics. Several topics ' + 'can be specified separated by commas',
                             required=False)
-        parser.add_argument('-g',
-                            '--consumer-group',
-                            action="store",
-                            dest="consumer_group",
-                            help='Kafka consumer group. \
-                            E.g., "filter_group"',
-                            required=False)
         parser.add_argument('-k',
-                            '--kafka',
-                            '-b',
                             '--kafka-bootstrap-server',
                             action="store",
                             dest="kafka_endpoint",
                             help='Kafka bootstrap server. \
                             E.g., "localhost:9092"',
+                            required=False)
+        parser.add_argument('-g',
+                            '--consumer-group',
+                            action="store",
+                            dest="consumer_group",
+                            help='Kafka consumer group.',
+                            required=False)
+        parser.add_argument('--consumer-timeout',
+                            action="store",
+                            dest="consumer_timeout",
+                            help='Kafka consumer timeout in seconds.',
                             required=False)
 
     def _initialize_kafka_attributes(self, args):
@@ -901,22 +926,97 @@ class Link:
         else:
             self.output_topics = []
 
+        self.kafka_endpoint = args.kafka_endpoint
+
         if args.consumer_group:
             self.consumer_group = args.consumer_group
 
-        self.kafka_endpoint = args.kafka_endpoint
+        if args.consumer_timeout:
+            self.consumer_timeout = args.consumer_timeout
+
+    @staticmethod
+    def _parse_catenae_args(parser):
+        parser.add_argument('--log-level',
+                            action="store",
+                            dest="log_level",
+                            help='Catenae log level [debug|info|warning|error|critical].',
+                            required=False)
+        parser.add_argument(
+            '--running-mode',
+            action="store",
+            dest="link_mode",
+            help=
+            'Link running mode [0(MULTIPLE_KAFKA_INPUTS)|1(CUSTOM_OUTPUT)|2(MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT)|3(CUSTOM_INPUT)].',
+            required=False)
+        parser.add_argument('--input-mode',
+                            action="store",
+                            dest="input_mode",
+                            help='Link input mode [parity|exp].',
+                            required=False)
+        parser.add_argument('--sync',
+                            action="store_true",
+                            dest="synchronous",
+                            help='Synchronous mode is enabled.',
+                            required=False)
+        parser.add_argument('--seq',
+                            action="store_true",
+                            dest="sequential",
+                            help='Sequential mode is enabled.',
+                            required=False)
+        parser.add_argument('--async',
+                            action="store_true",
+                            dest="asynchronous",
+                            help='Synchronous mode is disabled.',
+                            required=False)
+        parser.add_argument('--random-consumer-group',
+                            action="store_true",
+                            dest="random_consumer_group",
+                            help='Synchronous mode is disabled.',
+                            required=False)
+        parser.add_argument('--rpc-threads',
+                            action="store",
+                            dest="num_rpc_threads",
+                            help='Number of RPC threads.',
+                            required=False)
+        parser.add_argument('--main-threads',
+                            action="store",
+                            dest="num_main_threads",
+                            help='Number of main threads.',
+                            required=False)
+
+    def _initialize_catenae_attributes(self, args):
+        if args.log_level:
+            self.log_level = args.log_level
+        if args.link_mode:
+            self.link_mode = args.link_mode
+        if args.input_mode:
+            self.input_mode = args.input_mode
+        if args.synchronous:
+            self.synchronous = True
+        if args.sequential:
+            self.sequential = True
+        if args.asynchronous:
+            self.asynchronous = True
+        if args.random_consumer_group:
+            self.random_consumer_group = args.random_consumer_group
+        if args.num_rpc_threads:
+            self.num_rpc_threads = args.num_rpc_threads
+        if args.num_main_threads:
+            self.num_main_threads = args.num_main_threads
 
     def _load_args(self):
         parser = argparse.ArgumentParser()
 
-        self._parse_kafka_args(parser)
-        self._parse_aerospike_args(parser)
-        self._parse_mongodb_args(parser)
+        Link._parse_catenae_args(parser)
+        Link._parse_kafka_args(parser)
+        Link._parse_aerospike_args(parser)
+        Link._parse_mongodb_args(parser)
 
         parsed_args = parser.parse_known_args()
-        catenae_args = parsed_args[0]
+        link_args = parsed_args[0]
         self.args = parsed_args[1]
 
-        self._initialize_kafka_attributes(catenae_args)
-        self._initialize_aerospike_attributes(catenae_args)
-        self._initialize_mongodb_attributes(catenae_args)
+        self._initialize_catenae_attributes(link_args)
+        self._initialize_kafka_attributes(link_args)
+        self._initialize_aerospike_attributes(link_args)
+        self._initialize_mongodb_attributes(link_args)

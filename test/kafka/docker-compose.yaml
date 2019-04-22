@@ -14,49 +14,49 @@ services:
 
   source_link_1:
     image: catenae/link:develop
-    command: source_link.py -o input1 -b kafka:9092
+    command: source_link.py -o input1 -k kafka:9092
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka
 
   source_link_2:
     image: catenae/link:develop
-    command: source_link.py -o input2 -b kafka:9092
+    command: source_link.py -o input2 -k kafka:9092
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka
 
   middle_link_async_1:
     image: catenae/link:develop
-    command: middle_link_async.py -i input1 -o input3 -b kafka:9092
+    command: middle_link_async.py -i input1 -o input3 -k kafka:9092
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka
 
   middle_link_async_2:
     image: catenae/link:develop
-    command: middle_link_async.py -i input1,input2 -o input3 -b kafka:9092
+    command: middle_link_async.py -i input1,input2 -o input3 -k kafka:9092
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka
 
   middle_link_async_3:
     image: catenae/link:develop
-    command: middle_link_async.py -o input3 -b kafka:9092
+    command: middle_link_async.py -o input3 -k kafka:9092
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka
 
   middle_link_sync:
     image: catenae/link:develop
-    command: middle_link_sync.py -i input1 -o input3 -b kafka:9092 -g argument_defined_consumer_group
+    command: middle_link_sync.py -i input1 -o input3 -k kafka:9092 -g argument_defined_consumer_group
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka
 
   leaf_link:
     image: catenae/link:develop
-    command: leaf_link.py -i input3 -b kafka:9092
+    command: leaf_link.py -i input3 -k kafka:9092
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka
