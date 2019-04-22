@@ -1,22 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from queue import Queue
 from threading import Lock
 import time
 from .utils import get_timestamp
 
 
-class LinkQueue(Queue):
-    def __init__(self, minimum_messages=1, messages_left=None):
-        if messages_left is None:
-            messages_left = minimum_messages
-        self.minimum_messages = minimum_messages
-        self.messages_left = messages_left
-        super().__init__(maxsize=-1)
-
-
 class CustomQueue:
+    BLOCK_SECONDS = 0.1
+
     class EmptyError(Exception):
         def __init__(self, message=None):
             if message == None:
@@ -40,18 +32,18 @@ class CustomQueue:
             self._truncate()
             self._lock.release()
             return
-            
+
         start_timestamp = get_timestamp()
         while timeout == None or get_timestamp() - start_timestamp < timeout:
             self._lock.acquire()
-            if len(self._queue) < self._size:
+            if self._size <= 0 or len(self._queue) < self._size:
                 self._queue.append(item)
                 self._lock.release()
                 return
             self._lock.release()
             if not block:
                 raise CustomQueue.EmptyError
-            time.sleep(0.1)
+            time.sleep(CustomQueue.BLOCK_SECONDS)
 
     def get(self, block=True, timeout=None):
         start_timestamp = get_timestamp()
@@ -64,4 +56,13 @@ class CustomQueue:
             self._lock.release()
             if not block:
                 raise CustomQueue.EmptyError
-            time.sleep(0.1)
+            time.sleep(CustomQueue.BLOCK_SECONDS)
+
+
+class LinkQueue(CustomQueue):
+    def __init__(self, minimum_messages=1, messages_left=None):
+        if messages_left is None:
+            messages_left = minimum_messages
+        self.minimum_messages = minimum_messages
+        self.messages_left = messages_left
+        super().__init__()
