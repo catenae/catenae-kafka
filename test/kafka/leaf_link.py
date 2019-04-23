@@ -13,7 +13,8 @@ class LeafLink(Link):
 
     def transform(self, electron):
         logging.debug(f'{self.__class__.__name__} -> transform()')
-        logging.debug(f'{self.__class__.__name__} -> received key: {electron.key}, value: {electron.value}')
+        logging.debug(
+            f'{self.__class__.__name__} -> received key: {electron.key}, value: {electron.value}')
         logging.debug(f'{self.__class__.__name__} -> previous topic: {electron.previous_topic}')
 
 

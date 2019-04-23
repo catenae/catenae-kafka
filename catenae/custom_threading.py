@@ -43,5 +43,4 @@ class ThreadPool:
                     target()
             except Exception:
                 self.link_instance.logger.log(
-                    f'Exception during the execution of "{target.__name__}".',
-                    level='exception')
+                    f'Exception during the execution of "{target.__name__}".', level='exception')

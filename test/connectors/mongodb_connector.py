@@ -3,26 +3,18 @@
 
 from catenae.connectors.mongodb import MongodbConnector
 
-mongodb = MongodbConnector(
-    'mongodb',
-    27017,
-    default_database='catenae',
-    default_collection='catenae',
-    connect=True)
+mongodb = MongodbConnector('mongodb',
+                           27017,
+                           default_database='catenae',
+                           default_collection='catenae',
+                           connect=True)
 
 # Open and close a connection
 mongodb.open_connection()
 mongodb.close_connection()
 
 item = {'identifier': 'id1'}
-attributes = {
-    'attr1': 'value1',
-    'attr2': 'value2',
-    'attr3': [],
-    'attr4': {
-        'attr5': []
-    }
-}
+attributes = {'attr1': 'value1', 'attr2': 'value2', 'attr3': [], 'attr4': {'attr5': []}}
 
 # Try to add elements to a document list
 mongodb.push(item, 'attr3', ["value3", "value4"])
@@ -71,8 +63,7 @@ for result_item in result:
 mongodb.put(item, attributes)
 assert (mongodb.exists(item))
 
-result = mongodb.get(
-    item, limit=100, index_attribute='attr1', index_type='desc')
+result = mongodb.get(item, limit=100, index_attribute='attr1', index_type='desc')
 result = next(result)
 result.pop('_id')
 expected_result = item
@@ -88,8 +79,7 @@ assert (result == expected_result)
 
 # Get random item
 assert (next(mongodb.get_random()))
-assert (next(
-    mongodb.get_random(query={'attr1': 'value1'}, sort={'attr1': -1})))
+assert (next(mongodb.get_random(query={'attr1': 'value1'}, sort={'attr1': -1})))
 assert (next(mongodb.get_random(sort={'attr2': -1})))
 mongodb.remove(item)
 

@@ -6,7 +6,12 @@ from aerospike import exception as aerospike_exceptions
 
 
 class AerospikeConnector:
-    def __init__(self, bootstrap_server, bootstrap_port, default_namespace=None, default_set=None, connect=False):
+    def __init__(self,
+                 bootstrap_server,
+                 bootstrap_port,
+                 default_namespace=None,
+                 default_set=None,
+                 connect=False):
         self.config = {'hosts': [(bootstrap_server, bootstrap_port)], 'policies': {'timeout': 5000}}
         if default_namespace:
             self.default_namespace = default_namespace

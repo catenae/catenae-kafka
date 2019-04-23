@@ -7,12 +7,11 @@ import time
 connected = False
 while (not connected):
     try:
-        aerospike = AerospikeConnector(
-            'aerospike',
-            3000,
-            default_namespace='catenae',
-            default_set='catenae',
-            connect=True)
+        aerospike = AerospikeConnector('aerospike',
+                                       3000,
+                                       default_namespace='catenae',
+                                       default_set='catenae',
+                                       connect=True)
         connected = True
     except Exception:
         time.sleep(1)
