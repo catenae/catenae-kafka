@@ -52,7 +52,6 @@ class Link:
             self.uid = os.environ['HOSTNAME']
         else:
             self.uid = utils.keccak256(str(uuid4()))[:12]
-        self.uuid = self.uid
 
         # RPC topics
         self.rpc_instance_topic = f'catenae_rpc_{self.uid}'
@@ -105,7 +104,7 @@ class Link:
             'method': method,
             'context': {
                 'group': self.consumer_group,
-                'uuid': self.uid
+                'uid': self.uid
             },
             'args': args,
             'kwargs': kwargs
@@ -121,7 +120,7 @@ class Link:
         try:
             context = electron.value['context']
             self.logger.log(
-                f"RPC invocation from {electron.value['context']['uuid']} ({electron.value['context']['group']})",
+                f"RPC invocation from {electron.value['context']['uid']} ({electron.value['context']['group']})",
                 level='debug')
             if electron.value['kwargs']:
                 kwargs = electron.value['kwargs']
