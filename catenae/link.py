@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import sys
 import math
-import re
 from threading import Lock
 from pickle5 import pickle
 import time
@@ -19,7 +17,6 @@ from .custom_queue import LinkQueue
 from .custom_threading import Thread, ThreadPool
 from .connectors.aerospike import AerospikeConnector
 from .connectors.mongodb import MongodbConnector
-from .connectors.local import LocalConnector
 
 
 class Link:
@@ -229,7 +226,7 @@ class Link:
                 if not self.output_topics:
                     self.suicide('Electron / default output topic unset')
                 electron.topic = self.output_topics[0]
-g
+
             # Electrons are serialized
             if electron.unpack_if_string and type(electron.value) == str:
                 serialized_electron = electron.value
@@ -469,7 +466,7 @@ g
         prev_queued_messages = 0
 
         while not self.consumer_main_thread.stopped():
-            for i, topic in enumerate(self.input_topic_assignments.keys()):
+            for topic in self.input_topic_assignments.keys():
                 # Buffer for the current topic
                 message_buffer = []
 
@@ -838,9 +835,9 @@ g
         window_size = 900  # in seconds, 15 minutes
         topics_no = len(self.input_topics)
         self.logger.log('input topics time assingments:')
-        for i, topic in enumerate(self.input_topics):
+        for index, topic in enumerate(self.input_topics):
             topic_assingment = \
-                self._get_index_assignment(window_size, i, topics_no)
+                self._get_index_assignment(window_size, index, topics_no)
             self.input_topic_assignments[topic] = topic_assingment
             self.logger.log(f' - {topic}: {topic_assingment} seconds')
 

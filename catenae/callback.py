@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from . import utils
 import time
 import logging
 
@@ -53,7 +52,6 @@ class Callback:
             except Exception as e:
                 if 'UNKNOWN_MEMBER_ID' in str(e):
                     raise Exception('Cannot commit a message (timeout).')
-                logging.exception(
-                    f'Trying to commit a message ({attempts})...')
+                logging.exception(f'Trying to commit a message ({attempts})...')
                 attempts += 1
                 time.sleep(2)

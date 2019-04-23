@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from catenae import Link, Electron
+from catenae import Link
 import logging
 import random
 import time
@@ -15,7 +15,7 @@ class MiddleLinkAsync(Link):
     def remote_method(self, context, message):
         logging.info(f'RPC invocation of remote_method(message): {message}.\Context: {context}')
 
-    def remote_add_input_topic(self, context, topic):
+    def remote_add_input_topic(self, _, topic):
         self.add_input_topic(topic)
 
     def setup(self):

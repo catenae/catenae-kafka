@@ -69,7 +69,7 @@ class AerospikeConnector:
         as_key = self._connect_get_askey(key, namespace, set_)
         try:
             (_, _, bins) = self.client.get(as_key)
-        except aerospike_exceptions.RecordNotFound as e:
+        except aerospike_exceptions.RecordNotFound:
             return None, None
         # Return a single value if there is only one bin
         if len(bins) == 1:
