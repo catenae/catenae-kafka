@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import copy
+
 
 class Electron:
     def __init__(self,
@@ -33,10 +35,9 @@ class Electron:
         copy.callbacks = None
         return copy
 
+    def deepcopy(self):
+        return copy.deepcopy(self)
+
     def copy(self):
-        try:
-            return Electron(self.key, self.value.copy(), self.topic, self.previous_topic,
-                            self.unpack_if_string, self.callbacks)
-        except Exception:
-            return Electron(self.key, self.value, self.topic, self.previous_topic,
-                            self.unpack_if_string, self.callbacks)
+        return Electron(self.key, self.value, self.topic, self.previous_topic,
+                        self.unpack_if_string, self.callbacks)
