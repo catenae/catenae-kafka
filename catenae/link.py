@@ -67,6 +67,10 @@ class Link:
         self._set_execution_opts(synchronous, sequential, num_rpc_threads, num_main_threads, input_mode)
         self._set_consumer_timeout(consumer_timeout)
 
+        self._input_messages = LinkQueue()
+        self._output_messages = LinkQueue()
+        self.changed_input_topics = False
+
     def _loop_task(self, thread, target, args=None, kwargs=None, interval=None, wait=False):
         if wait:
             time.sleep(interval)
@@ -653,10 +657,6 @@ class Link:
 
         self._set_kafka_common_properties()
         self._set_connectors()
-
-        self._input_messages = LinkQueue()
-        self._output_messages = LinkQueue()
-        self.changed_input_topics = False
 
         # Overwritable by a link
         try:
