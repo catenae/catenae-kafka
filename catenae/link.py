@@ -608,6 +608,11 @@ class Link:
         # Needed since the setup method can be left blank
         pass
 
+    def transform(self, _):
+        # If the transform method was left blank, stop the main consumer
+        if hasattr(self, 'consumer_main_thread'):
+            self._consumer_main_thread.stop()
+
     def send(self, output_content, topic=None):
         try:
             if type(output_content) == Electron:

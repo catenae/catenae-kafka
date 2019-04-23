@@ -9,7 +9,7 @@ from .structures import CircularOrderedDict, CircularOrderedSet
 from .custom_queue import CustomQueue
 from .custom_threading import Thread, ThreadPool
 
-__version__ = '0.2.0'
+__version__ = '1.0.0rc1'
 
 logging.getLogger().setLevel(logging.INFO)
 logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s',
