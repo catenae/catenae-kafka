@@ -230,7 +230,7 @@ class Link:
                 if not self.output_topics:
                     self.suicide('Electron / default output topic unset')
                 electron.topic = self.output_topics[0]
-
+g
             # Electrons are serialized
             if electron.unpack_if_string and type(electron.value) == str:
                 serialized_electron = electron.value
@@ -244,7 +244,7 @@ class Link:
 
                 # Asynchronous
                 if self.asynchronous:
-                    self.producer.poll(0)
+                    self.producer.poll(5)
 
                 # Synchronous
                 else:
