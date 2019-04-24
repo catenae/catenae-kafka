@@ -31,7 +31,7 @@ class Link:
                  input_mode='parity',
                  consumer_group=None,
                  consumer_timeout=60,
-                 random_consumer_group=False,
+                 uid_consumer_group=False,
                  synchronous=False,
                  sequential=False,
                  num_rpc_threads=5,
@@ -60,7 +60,7 @@ class Link:
         self._load_args()
 
         self._set_link_mode_and_booleans(link_mode)
-        self._set_consumer_group(consumer_group, random_consumer_group)
+        self._set_consumer_group(consumer_group, uid_consumer_group)
         self._set_execution_opts(synchronous, sequential, num_rpc_threads, num_main_threads, input_mode)
         self._set_consumer_timeout(consumer_timeout)
 
@@ -747,12 +747,12 @@ class Link:
         except AttributeError:
             self._mongodb = None
 
-    def _set_consumer_group(self, consumer_group, random_consumer_group):
+    def _set_consumer_group(self, consumer_group, uid_consumer_group):
         if hasattr(self, 'consumer_group'):
-            consumer_group = self._consumer_group
-        if hasattr(self, 'random_consumer_group'):
-            random_consumer_group = self._random_consumer_group
-        if random_consumer_group:
+            consumer_group = self._conspumer_group
+        if hasattr(self, 'uid_consumer_group'):
+            uid_consumer_group = self._uid_consumer_group
+        if uid_consumer_group:
             self._consumer_group = self._uid
         elif consumer_group:
             self._consumer_group = consumer_group
@@ -1005,7 +1005,7 @@ class Link:
                             required=False)
         parser.add_argument('--random-consumer-group',
                             action="store_true",
-                            dest="random_consumer_group",
+                            dest="uid_consumer_group",
                             help='Synchronous mode is disabled.',
                             required=False)
         parser.add_argument('--rpc-threads',
@@ -1032,8 +1032,8 @@ class Link:
             self._sequential = True
         if args.asynchronous:
             self._asynchronous = True
-        if args.random_consumer_group:
-            self._random_consumer_group = True
+        if args.uid_consumer_group:
+            self._uid_consumer_group = True
         if args.num_rpc_threads:
             self._num_rpc_threads = args.num_rpc_threads
         if args.num_main_threads:
