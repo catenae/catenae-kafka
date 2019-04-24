@@ -30,7 +30,7 @@ class Link:
                  link_mode=None,
                  input_mode='parity',
                  consumer_group=None,
-                 consumer_timeout=20,
+                 consumer_timeout=60,
                  random_consumer_group=False,
                  synchronous=False,
                  sequential=False,
@@ -785,7 +785,8 @@ class Link:
             'metadata.max.age.ms': 10000,
             'socket.receive.buffer.bytes': 0,  # System default
             'group.id': self._consumer_group,
-            'session.timeout.ms': self._consumer_timeout,
+            'session.timeout.ms': 10000,  # heartbeat thread
+            'max.poll.interval.ms': self._consumer_timeout,  # processing time
             'enable.auto.commit': True,
             'auto.commit.interval.ms': 5000,
             'default.topic.config': {
