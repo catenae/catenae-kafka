@@ -749,7 +749,7 @@ class Link:
 
     def _set_consumer_group(self, consumer_group, uid_consumer_group):
         if hasattr(self, 'consumer_group'):
-            consumer_group = self._conspumer_group
+            consumer_group = self._consumer_group
         if hasattr(self, 'uid_consumer_group'):
             uid_consumer_group = self._uid_consumer_group
         if uid_consumer_group:
