@@ -269,7 +269,7 @@ class Link:
 
                 # Asynchronous
                 if self._asynchronous:
-                    self._producer.poll(5)
+                    self._producer.poll(0)
 
                 # Synchronous
                 else:
@@ -445,7 +445,7 @@ class Link:
 
         while not self._consumer_rpc_thread.stopped():
             try:
-                message = consumer.poll()
+                message = consumer.poll(5)
 
                 if not message or (not message.key() and not message.value()):
                     if not self._break_consumer_loop(subscription):
@@ -522,7 +522,7 @@ class Link:
                             break
                         self._input_topics_lock.release()
 
-                        message = consumer.poll()
+                        message = consumer.poll(5)
 
                         if not message or (not message.key() and not message.value()):
                             if not self._break_consumer_loop(subscription):
