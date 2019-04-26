@@ -30,7 +30,7 @@ class Link:
                  link_mode=None,
                  input_mode='parity',
                  consumer_group=None,
-                 consumer_timeout=60,
+                 consumer_timeout=300,
                  uid_consumer_group=False,
                  synchronous=False,
                  sequential=False,
