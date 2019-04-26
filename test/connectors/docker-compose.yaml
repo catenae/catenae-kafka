@@ -12,26 +12,24 @@ services:
     image: aerospike/aerospike-server:4.3.0.7
     volumes:
       - ./aerospike/etc/aerospike.conf:/opt/aerospike/etc/aerospike.conf:ro
-    ports:
-      - 3000:3000
     command: --config-file /opt/aerospike/etc/aerospike.conf
     logging: *default-logging
 
   mongodb:
     image: mongo:4.0-xenial
-    ports:
-      - 27017:27017
     logging: *default-logging
 
   aerospike_connector:
-    image: catenae/link:test
+    image: catenae/link:develop
+    container_name: aerospike_test
     command: aerospike_connector.py
     working_dir: /opt/catenae/test/connectors
     depends_on:
       - aerospike
 
   mongodb_connector:
-    image: catenae/link:test
+    image: catenae/link:develop
+    container_name: mongodb_test
     command: mongodb_connector.py
     working_dir: /opt/catenae/test/connectors
     depends_on:

@@ -2,13 +2,19 @@
 # -*- coding: utf-8 -*-
 
 from catenae.connectors.aerospike import AerospikeConnector
+import time
 
-
-aerospike = AerospikeConnector('aerospike',
-                               3000,
-                               default_namespace='catenae',
-                               default_set='catenae',
-                               connect=True)
+connected = False
+while (not connected):
+    try:
+        aerospike = AerospikeConnector('aerospike',
+                                       3000,
+                                       default_namespace='catenae',
+                                       default_set='catenae',
+                                       connect=True)
+        connected = True
+    except Exception:
+        time.sleep(1)
 
 # Open and close a connection
 aerospike.open_connection()
@@ -22,34 +28,34 @@ if aerospike.exists(sample_key):
     aerospike.remove(sample_key)
 
 # Key does not exist
-assert(not aerospike.exists(sample_key))
+assert (not aerospike.exists(sample_key))
 key, value = aerospike.get(sample_key)
-assert(key == None and value == None)
+assert (key == None and value == None)
 
 # Key exists but it is not stored
 aerospike.put(sample_key)
-assert(aerospike.exists(sample_key))
+assert (aerospike.exists(sample_key))
 key, value = aerospike.get(sample_key)
-assert(key == None and value == 0)
+assert (key == None and value == 0)
 aerospike.remove(sample_key)
 
 # Key does not exist
-assert(not aerospike.exists(sample_key))
+assert (not aerospike.exists(sample_key))
 key, value = aerospike.get(sample_key)
-assert(key == None and value == None)
+assert (key == None and value == None)
 
 # Key exists and it is stored
 aerospike.put(sample_key, store_key=True)
-assert(aerospike.exists(sample_key))
+assert (aerospike.exists(sample_key))
 key, value = aerospike.get(sample_key)
-assert(key == sample_key and value == None)
+assert (key == sample_key and value == None)
 aerospike.remove(sample_key)
 
 # Key exists with bins
 aerospike.put(sample_key, bins=bins)
-assert(aerospike.exists(sample_key))
+assert (aerospike.exists(sample_key))
 key, value = aerospike.get(sample_key)
-assert(key == None and value == bins)
+assert (key == None and value == bins)
 aerospike.remove(sample_key)
 
 # Create index

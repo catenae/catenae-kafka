@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from catenae import Link, Electron, util
+from catenae import Link
 import logging
 
 
@@ -18,5 +18,4 @@ class LeafLink(Link):
 
 
 if __name__ == "__main__":
-    LeafLink().start(link_mode=Link.CUSTOM_OUTPUT,
-                     random_consumer_group=True)
+    LeafLink(log_level='DEBUG', link_mode=Link.CUSTOM_OUTPUT, uid_consumer_group=True).start()
