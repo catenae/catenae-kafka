@@ -11,16 +11,20 @@ class MongodbConnector:
             self.default_database = default_database
         if default_collection:
             self.default_collection = default_collection
-        self.client = None
+        self._client = None
         if connect:
             self.open_connection()
+
+    @property
+    def client(self):
+        return self._client
 
     def _get_collection(self, database_name, collection_name):
         self.open_connection()
         database_name, collection_name = \
             self._get_database_and_collection_names(database_name,
                                                 collection_name)
-        database = getattr(self.client, database_name)
+        database = getattr(self._client, database_name)
         collection = getattr(database, collection_name)
         return collection
 
@@ -30,12 +34,12 @@ class MongodbConnector:
             self.default_collection = database_collection
 
     def open_connection(self):
-        if not self.client:
-            self.client = MongoClient(**self.config)
+        if not self._client:
+            self._client = MongoClient(**self.config)
 
     def close_connection(self):
-        if self.client:
-            self.client.close()
+        if self._client:
+            self._client.close()
 
     def _get_database_and_collection_names(self, database_name, collection_name):
         if not database_name and hasattr(self, 'default_database'):

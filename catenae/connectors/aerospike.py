@@ -6,34 +6,33 @@ from aerospike import exception as aerospike_exceptions
 
 
 class AerospikeConnector:
-    def __init__(self,
-                 bootstrap_server,
-                 bootstrap_port,
-                 default_namespace=None,
-                 default_set=None,
-                 connect=False):
+    def __init__(self, bootstrap_server, bootstrap_port, default_namespace=None, default_set=None, connect=False):
         self.config = {'hosts': [(bootstrap_server, bootstrap_port)], 'policies': {'timeout': 5000}}
         if default_namespace:
-            self.default_namespace = default_namespace
+            self._default_namespace = default_namespace
         if default_set:
-            self.default_set = default_set
-        self.client = None
+            self._default_set = default_set
+        self._client = None
         if connect:
             self.open_connection()
 
+    @property
+    def client(self):
+        return self._client
+
     def set_defaults(self, namespace, set_=None):
-        self.default_namespace = namespace
+        self._default_namespace = namespace
         if set_ != None:
-            self.default_set = set_
+            self._default_set = set_
 
     def open_connection(self):
-        if self.client == None:
-            self.client = aerospike.client(self.config).connect()
+        if self._client == None:
+            self._client = aerospike.client(self.config).connect()
 
     def close_connection(self):
-        if self.client != None:
-            self.client.close()
-            self.client = None
+        if self._client != None:
+            self._client.close()
+            self._client = None
 
     def _connect_get_askey(self, key, namespace, set_):
         self.open_connection()
@@ -44,9 +43,9 @@ class AerospikeConnector:
 
     def _get_namespace_and_set_names(self, namespace, set_):
         if not namespace and hasattr(self, 'default_namespace'):
-            namespace = self.default_namespace
+            namespace = self._default_namespace
         if not set_ and hasattr(self, 'default_set'):
-            set_ = self.default_set
+            set_ = self._default_set
         return namespace, set_
 
     def get_and_close(self, key, namespace=None, set_=None):
@@ -64,7 +63,7 @@ class AerospikeConnector:
         self.open_connection()
         namespace, set_ = \
             self._get_namespace_and_set_names(namespace, set_)
-        _, meta = self.client.exists((namespace, set_, key))
+        _, meta = self._client.exists((namespace, set_, key))
         if meta == None:
             return False
         else:
@@ -73,7 +72,7 @@ class AerospikeConnector:
     def get(self, key, namespace=None, set_=None):
         as_key = self._connect_get_askey(key, namespace, set_)
         try:
-            (_, _, bins) = self.client.get(as_key)
+            (_, _, bins) = self._client.get(as_key)
         except aerospike_exceptions.RecordNotFound:
             return None, None
         # Return a single value if there is only one bin
@@ -105,11 +104,11 @@ class AerospikeConnector:
             if type(bins) != dict:
                 bins = {'value': bins}
         as_key = self._connect_get_askey(key, namespace, set_)
-        self.client.put(as_key, bins)
+        self._client.put(as_key, bins)
 
     def remove(self, key, namespace=None, set_=None):
         as_key = self._connect_get_askey(key, namespace, set_)
-        self.client.remove(as_key)
+        self._client.remove(as_key)
 
     def create_index(self, bin_, set_=None, type_='string', name=None, namespace=None):
         self.open_connection()
@@ -118,6 +117,6 @@ class AerospikeConnector:
         if not name:
             name = bin_ + '_index'
         if type_ == 'string':
-            self.client.index_string_create(namespace, set_, bin_, name)
+            self._client.index_string_create(namespace, set_, bin_, name)
         elif type_ == 'integer' or type_ == 'numeric':
-            self.client.index_integer_create(namespace, set_, bin_, name)
+            self._client.index_integer_create(namespace, set_, bin_, name)

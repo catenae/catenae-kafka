@@ -738,12 +738,12 @@ class Link:
 
     def _set_connectors(self):
         try:
-            self._aerospike = AerospikeConnector(self._aerospike_host, self._aerospike_port)
+            self._aerospike = AerospikeConnector(self._aerospike_host, self._aerospike_port, connect=True)
         except AttributeError:
             self._aerospike = None
 
         try:
-            self._mongodb = MongodbConnector(self._mongodb_host, self._mongodb_port)
+            self._mongodb = MongodbConnector(self._mongodb_host, self._mongodb_port, connect=True)
         except AttributeError:
             self._mongodb = None
 
