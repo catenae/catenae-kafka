@@ -30,7 +30,14 @@ class Electron:
         return copy
 
     def deepcopy(self):
-        return copy.deepcopy(self)
+        electron = Electron()
+        electron.key = self.key
+        electron.value = copy.deepcopy(self.value)
+        electron.topic = self.topic
+        electron.previous_topic = self.previous_topic
+        electron.unpack_if_string = self.unpack_if_string
+        self.callbacks = []
+        return electron
 
     def copy(self):
         return Electron(self.key, self.value, self.topic, self.previous_topic, self.unpack_if_string, self.callbacks)

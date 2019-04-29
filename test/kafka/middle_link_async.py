@@ -13,9 +13,10 @@ class MiddleLinkAsync(Link):
         logging.info(f'MiddleLinkAsync -> {message}')
 
     def remote_method(self, context, message):
-        logging.info(f'RPC invocation of remote_method(message): {message}.\Context: {context}')
+        logging.info(f'RPC invocation of remote_method(message): {message}. Context: {context}')
 
-    def remote_add_input_topic(self, _, topic):
+    def remote_add_input_topic(self, context, topic):
+        logging.info(f'RPC invocation of remote_add_input_topic(): {topic}. Context: {context}')
         self.add_input_topic(topic)
 
     def setup(self):
@@ -35,8 +36,7 @@ class MiddleLinkAsync(Link):
 
     def transform(self, electron):
         logging.debug(f'{self.__class__.__name__} -> transform()')
-        logging.debug(
-            f'{self.__class__.__name__} -> received key: {electron.key}, value: {electron.value}')
+        logging.debug(f'{self.__class__.__name__} -> received key: {electron.key}, value: {electron.value}')
         electron.key = str(electron.key) + '_transformed_async'
         electron.value = str(electron.value) + '_transformed_async'
         logging.debug(f'{self.__class__.__name__} -> previous topic: {electron.previous_topic}')
