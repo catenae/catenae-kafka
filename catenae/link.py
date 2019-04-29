@@ -1,6 +1,32 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+#          ***            **     ******************     ***         ***       ***           **               ***
+#       ***              ****            **           ***           ****      ***          ****            ***
+#     ***              ***  ***          **         ***             *****     ***        ***  ***        ***
+#   ***               ***    ***         **       ***               *** ***   ***       ***    ***     ***
+#  ***               ***      ***        **     ******************  ***  ***  ***      ***      ***   ******************
+#    ***            ***        ***       **       ***               ***    ** ***     ***        ***    ***
+#      ***         ***          ***      **         ***             ***     *****    ***          ***     ***
+#         ***     ***            ***     **           ***           ***      ****   ***            ***      ***
+#           ***  ***              ***    **             ***         ***       ***  ***              ***       ***
+
+# Catenae
+# Copyright (C) 2017-2019 Rodrigo Martínez Castaño
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 import math
 from threading import Lock
 from pickle5 import pickle
@@ -24,6 +50,8 @@ class Link:
     CUSTOM_OUTPUT = 1
     MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT = 2
     CUSTOM_INPUT = 3
+
+    NO_INPUT_TOPIC_SLEEP_SECONDS = 1
 
     def __init__(self,
                  log_level='INFO',
@@ -471,20 +499,6 @@ class Link:
                     self.suicide('Kafka consumer error', exception=True)
 
     def _kafka_consumer_main(self):
-        # Since the list
-        while not self._input_topics:
-            self.logger.log('No input topics, waiting...', level='debug')
-            time.sleep(1)
-
-        if self._input_mode == 'parity':
-            self._input_topic_assignments = {-1: -1}
-
-        # If topics are not specified, the first is used
-        elif not self._input_topic_assignments:
-            self._input_topic_assignments = {}
-            self._input_topic_assignments[self._input_topics[0]] = -1
-
-        # Kafka Consumer
         if self._synchronous:
             properties = dict(self._kafka_consumer_synchronous_properties)
         else:
@@ -495,7 +509,19 @@ class Link:
         prev_queued_messages = 0
 
         while not self._consumer_main_thread.stopped():
-            for topic in self._input_topic_assignments.keys():
+            while not self._input_topics:
+                self.logger.log('No input topics, waiting...', level='debug')
+                time.sleep(Link.NO_INPUT_TOPIC_SLEEP_SECONDS)
+
+            self._set_input_topic_assignments()
+            current_input_topic_assignments = dict(self._input_topic_assignments)
+
+            for topic in current_input_topic_assignments.keys():
+                with self._input_topics_lock:
+                    if self._changed_input_topics:
+                        self._changed_input_topics = False
+                        break
+
                 # Buffer for the current topic
                 message_buffer = []
 
@@ -512,15 +538,14 @@ class Link:
 
                 try:
                     start_time = utils.get_timestamp_ms()
-                    assigned_time = self._input_topic_assignments[topic]
+                    assigned_time = current_input_topic_assignments[topic]
                     while assigned_time == -1 or Link.in_time(start_time, assigned_time):
                         # Subscribe to the topics again if input topics have changed
-                        self._input_topics_lock.acquire()
-                        if self._changed_input_topics:
-                            self._changed_input_topics = False
-                            self._input_topics_lock.release()
-                            break
-                        self._input_topics_lock.release()
+                        with self._input_topics_lock:
+                            if self._changed_input_topics:
+                                # _changed_input_topics is set to False in the
+                                # outer loop so both loops are broken
+                                break
 
                         message = consumer.poll(5)
 
@@ -663,21 +688,19 @@ class Link:
     def add_input_topic(self, input_topic):
         if input_topic not in self._input_topics:
             self._input_topics.append(input_topic)
-            self._input_topics_lock.acquire()
-            if self._input_mode == 'exp':
-                self._set_input_topic_exp_assignments()
-            self._changed_input_topics = True
-            self._input_topics_lock.release()
+            with self._input_topics_lock:
+                if self._input_mode == 'exp':
+                    self._set_input_topic_assignments()
+                self._changed_input_topics = True
             self.logger.log(f'added input {input_topic}')
 
     def remove_input_topic(self, input_topic):
         if input_topic in self._input_topics:
             self._input_topics.remove(input_topic)
-            self._input_topics_lock.acquire()
-            if self._input_mode == 'exp':
-                self._set_input_topic_exp_assignments()
-            self._changed_input_topics = True
-            self._input_topics_lock.release()
+            with self._input_topics_lock:
+                if self._input_mode == 'exp':
+                    self._set_input_topic_assignments()
+                self._changed_input_topics = True
             self.logger.log(f'removed input {input_topic}')
 
     def start(self):
@@ -727,7 +750,7 @@ class Link:
         if self._is_custom_input:
             input_target = self.custom_input
         elif self._is_multiple_kafka_input and self._input_mode == 'exp':
-            self._set_input_topic_exp_assignments()
+            self._set_input_topic_assignments()
         consumer_kwargs = {'target': input_target}
         self._consumer_main_thread = Thread(target=self._thread_target, kwargs=consumer_kwargs)
         self._consumer_main_thread.start()
@@ -869,8 +892,16 @@ class Link:
             self._consumer_timeout = consumer_timeout
         self._consumer_timeout = self._consumer_timeout * 1000
 
-    def _set_input_topic_exp_assignments(self):
+    def _set_input_topic_assignments(self):
+        if self._input_mode == 'parity':
+            self._input_topic_assignments = {-1: -1}
+            return
+
         self._input_topic_assignments = {}
+
+        if len(self._input_topics[0]) == 1:
+            self._input_topic_assignments[self._input_topics[0]] = -1
+
         window_size = 900  # in seconds, 15 minutes
         topics_no = len(self._input_topics)
         self.logger.log('input topics time assingments:')
