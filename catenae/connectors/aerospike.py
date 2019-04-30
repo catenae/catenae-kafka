@@ -3,11 +3,13 @@
 
 import aerospike
 from aerospike import exception as aerospike_exceptions
+import time
+import logging
 
 
 class AerospikeConnector:
     def __init__(self, bootstrap_server, bootstrap_port, default_namespace=None, default_set=None, connect=False):
-        self.config = {'hosts': [(bootstrap_server, bootstrap_port)], 'policies': {'timeout': 5000}}
+        self._config = {'hosts': [(bootstrap_server, bootstrap_port)], 'policies': {'timeout': 5000}}
         if default_namespace:
             self._default_namespace = default_namespace
         if default_set:
@@ -21,13 +23,22 @@ class AerospikeConnector:
         return self._client
 
     def set_defaults(self, namespace, set_=None):
+        if namespace == None:
+            raise AttributeError('Namespace cannot be None')
         self._default_namespace = namespace
         if set_ != None:
             self._default_set = set_
 
-    def open_connection(self):
+    def open_connection(self, attempts=10):
         if self._client == None:
-            self._client = aerospike.client(self.config).connect()
+            try:
+                self._client = aerospike.client(self._config).connect()
+            except Exception:
+                if attempts == 0:
+                    logging.exception('')
+                else:
+                    time.sleep(1)
+                    self.open_connection(attempts - 1)
 
     def close_connection(self):
         if self._client != None:
@@ -42,9 +53,9 @@ class AerospikeConnector:
         return as_key
 
     def _get_namespace_and_set_names(self, namespace, set_):
-        if not namespace and hasattr(self, 'default_namespace'):
+        if namespace == None and hasattr(self, '_default_namespace'):
             namespace = self._default_namespace
-        if not set_ and hasattr(self, 'default_set'):
+        if set_ == None and hasattr(self, '_default_set'):
             set_ = self._default_set
         return namespace, set_
 

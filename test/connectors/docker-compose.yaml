@@ -19,18 +19,18 @@ services:
     image: mongo:4.0-xenial
     logging: *default-logging
 
-  aerospike_connector:
+  aerospike_test:
     image: catenae/link:develop
     container_name: aerospike_test
-    command: aerospike_connector.py
+    command: aerospike_test.py
     working_dir: /opt/catenae/test/connectors
     depends_on:
       - aerospike
 
-  mongodb_connector:
+  mongodb_test:
     image: catenae/link:develop
     container_name: mongodb_test
-    command: mongodb_connector.py
+    command: mongodb_test.py
     working_dir: /opt/catenae/test/connectors
     depends_on:
       - mongodb

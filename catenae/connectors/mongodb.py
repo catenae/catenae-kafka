@@ -2,15 +2,17 @@
 # -*- coding: utf-8 -*-
 
 from pymongo import MongoClient
+import logging
+import time
 
 
 class MongodbConnector:
     def __init__(self, host, port, default_database=None, default_collection=None, connect=False):
-        self.config = {'host': host, 'port': port}
+        self._config = {'host': host, 'port': port}
         if default_database:
-            self.default_database = default_database
+            self._default_database = default_database
         if default_collection:
-            self.default_collection = default_collection
+            self._default_collection = default_collection
         self._client = None
         if connect:
             self.open_connection()
@@ -29,23 +31,30 @@ class MongodbConnector:
         return collection
 
     def set_defaults(self, database_name, database_collection=None):
-        self.default_database = database_name
+        self._default_database = database_name
         if database_collection != None:
-            self.default_collection = database_collection
+            self._default_collection = database_collection
 
-    def open_connection(self):
+    def open_connection(self, attempts=10):
         if not self._client:
-            self._client = MongoClient(**self.config)
+            try:
+                self._client = MongoClient(**self._config)
+            except Exception:
+                if attempts == 0:
+                    logging.exception('')
+                else:
+                    time.sleep(1)
+                    self.open_connection(attempts - 1)
 
     def close_connection(self):
         if self._client:
             self._client.close()
 
     def _get_database_and_collection_names(self, database_name, collection_name):
-        if not database_name and hasattr(self, 'default_database'):
-            database_name = self.default_database
-        if not collection_name and hasattr(self, 'default_collection'):
-            collection_name = self.default_collection
+        if not database_name and hasattr(self, '_default_database'):
+            database_name = self._default_database
+        if not collection_name and hasattr(self, '_default_collection'):
+            collection_name = self._default_collection
         return database_name, collection_name
 
     def get_and_close(self, query=None, database_name=None, collection_name=None):

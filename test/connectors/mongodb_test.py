@@ -3,11 +3,8 @@
 
 from catenae.connectors.mongodb import MongodbConnector
 
-mongodb = MongodbConnector('mongodb',
-                           27017,
-                           default_database='catenae',
-                           default_collection='catenae',
-                           connect=True)
+mongodb = MongodbConnector('mongodb', 27017, connect=True)
+mongodb.set_defaults('catenae', 'catenae')
 
 # Open and close a connection
 mongodb.open_connection()
