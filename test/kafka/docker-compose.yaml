@@ -60,3 +60,10 @@ services:
     working_dir: /opt/catenae/test/kafka
     depends_on:
       - kafka
+
+  add_remove_topic:
+    image: catenae/link:develop
+    command: add_remove_topic.py -k kafka:9092
+    working_dir: /opt/catenae/test/kafka
+    depends_on:
+      - kafka
