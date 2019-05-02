@@ -10,9 +10,9 @@ import logging
 class AerospikeConnector:
     def __init__(self, bootstrap_server, bootstrap_port, default_namespace=None, default_set=None, connect=False):
         self._config = {'hosts': [(bootstrap_server, bootstrap_port)], 'policies': {'timeout': 5000}}
-        if default_namespace:
+        if default_namespace != None:
             self._default_namespace = default_namespace
-        if default_set:
+        if default_set != None:
             self._default_set = default_set
         self._client = None
         if connect:

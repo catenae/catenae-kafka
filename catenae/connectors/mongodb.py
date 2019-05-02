@@ -9,9 +9,9 @@ import time
 class MongodbConnector:
     def __init__(self, host, port, default_database=None, default_collection=None, connect=False):
         self._config = {'host': host, 'port': port}
-        if default_database:
+        if default_database != None:
             self._default_database = default_database
-        if default_collection:
+        if default_collection != None:
             self._default_collection = default_collection
         self._client = None
         if connect:
@@ -39,6 +39,7 @@ class MongodbConnector:
         if not self._client:
             try:
                 self._client = MongoClient(**self._config)
+                self._client.server_info()
             except Exception:
                 if attempts == 0:
                     logging.exception('')

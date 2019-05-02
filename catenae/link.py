@@ -875,14 +875,14 @@ class Link:
 
         if self._sequential:
             if self._synchronous:
-                self.logger.log('execution mode: synchronous (sequential)')
+                self.logger.log('execution mode: SYNC (sequential)')
             else:
-                self.logger.log('execution mode: asynchronous (sequential)')
+                self.logger.log('execution mode: ASYNC (sequential)')
         else:
             if self._synchronous:
-                self.logger.log('execution mode: synchronous')
+                self.logger.log('execution mode: SYNC')
             else:
-                self.logger.log('execution mode: asynchronous')
+                self.logger.log('execution mode: ASYNC')
 
         if not hasattr(self, 'input_mode'):
             self._input_mode = input_mode
