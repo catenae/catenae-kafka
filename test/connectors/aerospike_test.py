@@ -4,55 +4,67 @@
 from catenae.connectors.aerospike import AerospikeConnector
 import time
 
-aerospike = AerospikeConnector('aerospike', 3000, connect=True)
-aerospike.set_defaults('catenae', 'catenae')
 
-# Open and close a connection
-aerospike.open_connection()
-aerospike.close_connection()
+class AerospikeTest:
+    def __init__(self):
+        self.aerospike = AerospikeConnector('aerospike', 3000, connect=True)
+        self.aerospike.set_defaults('catenae', 'catenae')
 
-sample_key = 'sample_key'
-bins = {'bin1': 'value1', 'bin2': 'value2'}
+        self.sample_key = 'sample_key'
+        self.bins = {'bin1': 'value1', 'bin2': 'value2'}
 
-# Remove record if it exists
-if aerospike.exists(sample_key):
-    aerospike.remove(sample_key)
+    def open_close_connection(self):
+        self.aerospike.open_connection()
+        self.aerospike.close_connection()
 
-# Key does not exist
-assert (not aerospike.exists(sample_key))
-key, value = aerospike.get(sample_key)
-assert (key == None and value == None)
+    def remove_record_if_exists(self):
+        if self.aerospike.exists(self.sample_key):
+            self.aerospike.remove(self.sample_key)
 
-# Key exists but it is not stored
-aerospike.put(sample_key)
-assert (aerospike.exists(sample_key))
-key, value = aerospike.get(sample_key)
-assert (key == None and value == 0)
-aerospike.remove(sample_key)
+    def check_non_existing_key(self):
+        self.remove_record_if_exists()
+        assert (not self.aerospike.exists(self.sample_key))
+        key, value = self.aerospike.get(self.sample_key)
+        assert (key == None and value == None)
 
-# Key does not exist
-assert (not aerospike.exists(sample_key))
-key, value = aerospike.get(sample_key)
-assert (key == None and value == None)
+    def check_existing_key_without_bins(self):
+        self.remove_record_if_exists()
+        self.aerospike.put(self.sample_key)
+        assert (self.aerospike.exists(self.sample_key))
+        key, value = self.aerospike.get(self.sample_key)
+        assert (key == None and value == 0)
 
-# Key exists and it is stored
-aerospike.put(sample_key, store_key=True)
-assert (aerospike.exists(sample_key))
-key, value = aerospike.get(sample_key)
-assert (key == sample_key and value == None)
-aerospike.remove(sample_key)
+    def check_existing_key_with_key_bin(self):
+        self.remove_record_if_exists()
+        self.aerospike.put(self.sample_key, store_key=True)
+        assert (self.aerospike.exists(self.sample_key))
+        key, value = self.aerospike.get(self.sample_key)
+        assert (key == self.sample_key and value == None)
 
-# Key exists with bins
-aerospike.put(sample_key, bins=bins)
-assert (aerospike.exists(sample_key))
-key, value = aerospike.get(sample_key)
-assert (key == None and value == bins)
-aerospike.remove(sample_key)
+    def check_existing_key_with_key_value_bins(self):
+        self.remove_record_if_exists()
+        self.aerospike.put(self.sample_key, bins=self.bins)
+        assert (self.aerospike.exists(self.sample_key))
+        key, value = self.aerospike.get(self.sample_key)
+        assert (key == None and value == self.bins)
 
-# Create index
-aerospike.put(sample_key, bins=bins)
-aerospike.create_index('bin1', type_='string', name='bin1_idx')
-aerospike.get_and_close('key1')
-aerospike.remove(sample_key)
+    def create_index(self):
+        self.remove_record_if_exists()
+        self.aerospike.put(self.sample_key, bins=self.bins)
+        self.aerospike.create_index('bin1', type_='string', name='bin1_idx')
+        self.aerospike.get_and_close('key1')
 
-print('PASSED')
+    def start(self):
+        self.open_close_connection()
+        self.create_index()
+
+        self.check_existing_key_without_bins()
+        self.check_non_existing_key()
+        self.check_existing_key_with_key_bin()
+        self.check_existing_key_with_key_value_bins()
+
+        print('PASSED')
+
+
+if __name__ == "__main__":
+    AerospikeTest().start()
