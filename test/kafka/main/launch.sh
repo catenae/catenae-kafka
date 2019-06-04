@@ -1,6 +1,7 @@
 #!/bin/bash
+current_dir="$(pwd)"
 docker-compose down
-cd ..
+cd ../..
 ./build.sh
-cd kafka
+cd $current_dir
 docker-compose up -d

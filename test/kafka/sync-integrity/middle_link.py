@@ -11,8 +11,7 @@ class MiddleLink(Link):
         number = electron.value
         self.logger.log(f'Received: {number}')
         if random.randint(0, 20) == 7:
-            raise AttributeError
-            # self.suicide()
+            raise Exception
         self.logger.log(f'Processed: {number}')
 
 

@@ -41,6 +41,7 @@ from .callback import Callback
 from .logger import Logger
 from .custom_queue import LinkQueue
 from .custom_threading import Thread, ThreadPool
+from .custom_multiprocessing import Process
 from .connectors.aerospike import AerospikeConnector
 from .connectors.mongodb import MongodbConnector
 
@@ -237,11 +238,23 @@ class Link:
         loop_thread.start()
         return loop_thread
 
-    def thread(self, target, args=None, kwargs=None):
-        raise NotImplementedError
+    def launch_thread(self, target, args=None, kwargs=None):
+        if args is None:
+            args = ()
+        if kwargs is None:
+            kwargs = {}
+        thread = Thread(target=target, args=args, kwargs=kwargs)
+        thread.start()
+        return thread
 
-    def process(self, target, args=None, kwargs=None):
-        raise NotImplementedError
+    def launch_process(self, target, args=None, kwargs=None):
+        if args is None:
+            args = ()
+        if kwargs is None:
+            kwargs = {}
+        process = Process(target=target, args=args, kwargs=kwargs)
+        process.start()
+        return process
 
     def _kafka_producer(self):
         if self._synchronous:
