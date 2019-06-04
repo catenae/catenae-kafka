@@ -330,8 +330,7 @@ class Link:
             transform_result = self.transform(electron)
             self.logger.log('electron transformed', level='debug')
         except Exception:
-            self.logger.log('exception during the execution of "transform"', level='exception')
-            return
+            self.suicide('exception during the execution of "transform"', exception=True)
 
         if type(transform_result) == tuple:
             electrons = transform_result[0]
@@ -889,13 +888,11 @@ class Link:
             self._sequential = sequential
             self._asynchronous = True
 
-        if not hasattr(self, 'num_rpc_threads'):
-            if self._sequential:
-                num_rpc_threads = 1
+        if synchronous or sequential:
+            self._num_main_threads = 1
+            self._num_rpc_threads = 1
+        else:
             self._num_rpc_threads = num_rpc_threads
-        if not hasattr(self, 'num_main_threads'):
-            if self._sequential:
-                num_main_threads = 1
             self._num_main_threads = num_main_threads
 
         if self._sequential:
