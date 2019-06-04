@@ -1,5 +1,7 @@
 #!/bin/bash
-cd ..; ./build.sh; cd connectors
+current_dir="$(pwd)"
+cd ../../docker && ./build.sh
+cd $current_dir
 docker-compose down
 docker-compose up -d
 sleep 5

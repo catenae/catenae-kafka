@@ -18,4 +18,4 @@ class SourceLink(Link):
 
 
 if __name__ == "__main__":
-    SourceLink(link_mode=Link.CUSTOM_INPUT, sequential=True).start()
+    SourceLink(sequential=True).start()

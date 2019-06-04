@@ -63,8 +63,8 @@ class Link:
                  uid_consumer_group=False,
                  synchronous=False,
                  sequential=False,
-                 num_rpc_threads=5,
-                 num_main_threads=5):
+                 num_rpc_threads=1,
+                 num_main_threads=1):
 
         self._set_log_level(log_level)
         self.logger = Logger(self, self._log_level)
@@ -82,7 +82,7 @@ class Link:
 
         # RPC topics
         self.rpc_instance_topic = f'catenae_rpc_{self._uid}'
-        self.rpc_group_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
+        self.rpc_group_topic = f'catenae_rpc_{self.__class__.__name__}'
         self.rpc_broadcast_topic = 'catenae_rpc_broadcast'
         self._rpc_topics = [self.rpc_instance_topic, self.rpc_group_topic, self.rpc_broadcast_topic]
 
@@ -205,13 +205,15 @@ class Link:
             message = 'Suicide method invoked'
 
         if self._kafka_endpoint:
-            if hasattr(self, 'producer_thread'):
+            if hasattr(self, '_producer_thread'):
                 self._producer_thread.stop()
-            if hasattr(self, 'consumer_rpc_thread'):
+            if hasattr(self, '_consumer_rpc_thread'):
                 self._consumer_rpc_thread.stop()
-            if hasattr(self, 'consumer_main_thread'):
+            if hasattr(self, '_generator_main_thread'):
+                self._generator_main_thread.stop()
+            if hasattr(self, '_consumer_main_thread'):
                 self._consumer_main_thread.stop()
-            if hasattr(self, 'transform_thread'):
+            if hasattr(self, '_transform_thread'):
                 self._transform_thread.stop()
 
         message += ' Exiting...'
@@ -693,16 +695,7 @@ class Link:
             self.logger.log(level='exception')
 
     def generator(self):
-        """ If the generator method was not overrided in the main script an
-        error will be printed and the execution will finish """
-        self.suicide('Undefined "generator" method')
-
-    def custom_input(self):
-        """ If a custom_input method is not defined by the main script,
-        the new standard generator will be invoked. This is to support both
-        method names for previous modules, but custom_input should be
-        considered deprecated """
-        return self.generator()
+        self.logger.log('Generator method undefined. Disabled.')
 
     def _thread_target(self, target, args=None, kwargs=None):
         try:
@@ -776,13 +769,16 @@ class Link:
         self._consumer_rpc_thread.start()
 
         # Kafka main consumer
-        input_target = self._kafka_consumer_main
-        if self._is_custom_input:
-            input_target = self.custom_input
-        elif self._is_multiple_kafka_input and self._input_mode == 'exp':
+        if self._is_multiple_kafka_input and self._input_mode == 'exp':
             self._set_input_topic_assignments()
-        consumer_kwargs = {'target': input_target}
-        self._consumer_main_thread = Thread(target=self._thread_target, kwargs=consumer_kwargs)
+
+        if hasattr(self, 'generator'):
+            self._generator_main_thread = Thread(target=self._thread_target,
+                                                 kwargs={'target': self.generator})
+            self._generator_main_thread.start()
+
+        self._consumer_main_thread = Thread(target=self._thread_target,
+                                            kwargs={'target': self._kafka_consumer_main})
         self._consumer_main_thread.start()
 
     def _set_log_level(self, log_level):
@@ -813,7 +809,7 @@ class Link:
         elif consumer_group:
             self._consumer_group = consumer_group
         else:
-            self._consumer_group = f'catenae_{self.__class__.__name__}'
+            self._consumer_group = f'catenae_{self.__class__.__name__.lower()}'
 
     def _set_link_mode_and_booleans(self, link_mode):
         if not hasattr(self, 'link_mode'):

@@ -14,16 +14,16 @@ services:
 
   source_link:
     image: catenae/link:develop
-    command: sync-integrity/source_link.py -o input1 -k kafka:9092
-    working_dir: /opt/catenae/test/kafka
+    command: source_link.py -o input1 -k kafka:9092
+    working_dir: /opt/catenae/test/sync-integrity
     restart: always
     depends_on:
       - kafka
 
   middle_link:
     image: catenae/link:develop
-    command: sync-integrity/middle_link.py -i input1 -k kafka:9092
-    working_dir: /opt/catenae/test/kafka
+    command: middle_link.py -i input1 -k kafka:9092
+    working_dir: /opt/catenae/test/sync-integrity
     restart: always
     depends_on:
       - kafka
