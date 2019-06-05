@@ -16,7 +16,8 @@ Among Catenae's main functionalities are:
 # Docs
 To-Do
 
-# `examples/filter`
+# Example 1: Filter
+Try it at [`examples/filter`](https://github.com/catenae/catenae/tree/develop/examples/filter)
 
 ## Micromodules
 
@@ -116,7 +117,8 @@ services:
 docker-compose up -d
 ```
 
-# `examples/wordcount`
+# Example 2: Word Count
+Try it at [`examples/wordcount`](https://github.com/catenae/catenae/tree/develop/examples/wordcount)
 
 ## Micromodules
 
