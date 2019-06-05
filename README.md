@@ -16,13 +16,12 @@ Among Catenae's main functionalities are:
 # Docs
 To-Do
 
-
-# Example 1: Word Count
-
-For the Word Count, there are three micromodules. The first one streams the lines of a text. The second module is the Mapper and can be launched multiple times. It returns a tuple for every received line with the number of occurrences of each word. The streamed lines will be distributed among the existing instances automatically. Finally, the last module (Reducer) will be instantiated only once and will aggregate the stream of local counts emitted from the Mapper instances in real time, showing always an up-to-date result on the standard output.
+# `examples/filter`
 
 ## Micromodules
-### Streamer (source link)
+
+### Streamer
+This module streams a line of the defined text every two seconds.
 ```python
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
@@ -33,21 +32,100 @@ import time
 
 class Streamer(Link):
     def setup(self):
-        self.lines = "A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution. Digital signatures provide part of the solution, but the main benefits are lost if a trusted third party is still required to prevent double-spending. We propose a solution to the double-spending problem using a peer-to-peer network. The network timestamps transactions by hashing them into an ongoing chain of hash-based proof-of-work, forming a record that cannot be changed without redoing the proof-of-work. The longest chain not only serves as proof of the sequence of events witnessed, but proof that it came from the largest pool of CPU power. As long as a majority of CPU power is controlled by nodes that are not cooperating to attack the network, they'll generate the longest chain and outpace attackers. The network itself requires minimal structure. Messages are broadcast on a best effort basis, and nodes can leave and rejoin the network at will, accepting the longest proof-of-work chain as proof of what happened while they were gone.".split(
-            '.')
+        self.lines = ("A purely peer-to-peer version of electronic cash would allow online " \
+                      "payments to be sent directly from one party to another without going " \
+                      "through a financial institution. Digital signatures provide part of the " \
+                      "solution, but the main benefits are lost if a trusted third party is still "\
+                      "required to prevent double-spending. We propose a solution to the "\
+                      "double-spending problem using a peer-to-peer network. The network "\
+                      "timestamps transactions by hashing them into an ongoing chain of "\
+                      "hash-based proof-of-work, forming a record that cannot be changed without "\
+                      "redoing the proof-of-work. The longest chain not only serves as proof of "\
+                      "the sequence of events witnessed, but proof that it came from the largest "\
+                      "pool of CPU power. As long as a majority of CPU power is controlled by "\
+                      "nodes that are not cooperating to attack the network, they'll generate the "\
+                      "longest chain and outpace attackers. The network itself requires minimal "\
+                      "structure. Messages are broadcast on a best effort basis, and nodes can "\
+                      "leave and rejoin the network at will, accepting the longest proof-of-work "\
+                      "chain as proof of what happened while they were gone.").split('.')
 
     def generator(self):
         for line in self.lines:
-            self.send(line)
+            self.send(line.strip())
         time.sleep(2)
 
 
 if __name__ == "__main__":
     Streamer().start()
-
 ```
 
-### Mapper (middle link)
+### Filter
+```python
+from catenae import Link, Electron
+
+
+class Filter(Link):
+    def setup(self):
+        self.allowed_words = set(['CPU', 'proof-of-work', 'chain', 'nodes'])
+
+    def transform(self, electron):
+        line = electron.value
+        words = line.split()
+        if set(words).intersection(self.allowed_words):
+            self.logger.log(line)
+
+
+if __name__ == "__main__":
+    Filter().start()
+```
+
+## Deployment
+```yaml
+version: '3.4'
+
+x-logging: &default-logging
+  options:
+    max-size: '50m'
+    max-file: '1'
+  driver: json-file
+
+services:
+
+  kafka:
+    image: catenae/kafka
+    logging: *default-logging
+
+  streamer:
+    image: catenae/link:develop
+    command: streamer.py -o filter_input -k kafka:9092
+    working_dir: /opt/catenae/examples/filter
+    restart: always
+    depends_on:
+      - kafka
+
+  filter:
+    image: catenae/link:develop
+    command: filter.py -i filter_input -k kafka:9092
+    working_dir: /opt/catenae/examples/filter
+    restart: always
+    depends_on:
+      - kafka
+```
+
+```bash
+docker-compose up -d
+```
+
+# `examples/wordcount`
+
+## Micromodules
+
+### Streamer
+> The same script of the Example 1 will be used.
+
+### Mapper
+This module can be launched multiple times. It returns a tuple for every received line with the number of occurrences of each word. The streamed lines will be distributed among the existing instances automatically.
+
 ```python
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
@@ -78,7 +156,8 @@ if __name__ == "__main__":
     Mapper().start()
 ```
 
-### Reducer (leaf link)
+### Reducer
+The last module of this topology will be instantiated only once and it is in charge of aggregating the stream of local counts emitted from the Mapper instances in real time. For every received tuple it will show the updated result.
 ```python
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
