@@ -638,6 +638,14 @@ services:
 docker-compose up -d --scale mapper=4
 ```
 
+# Open Source software using Catenae
+
+| Name | Link | Description |
+|------|------|-------------|
+| Reddit Crawler | [github.com/brunneis/reddit-crawler](https://github.com/brunneis/reddit-crawler) | Crawl every Reddit's post in real time |
+| REDD | [github.com/redd-system](https://github.com/redd-system) | Detect early signs of depression on Reddit |
+
+
 # References
 > A Micromodule Approach for Building Real-Time Systems with Python-Based Models: Application to Early Risk Detection of Depression on Social Media — R Martínez-Castaño, JC Pichel, DE Losada, F Crestani — European Conference on Information Retrieval, 2018 — [PDF](https://dev.brunneis.com/documents/Papers/ECIR%202018/A%20Micromodule%20Approach%20for%20Building%20Real-Time%20Systems%20with%20Python-Based%20Models:%20Application%20to%20Early%20Risk%20Detection%20of%20Depression%20on%20Social%20Media.pdf)
 
