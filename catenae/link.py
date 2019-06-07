@@ -271,7 +271,7 @@ class Link:
         # order if retries is enabled.
 
         self._producer = Producer(properties)
-        self.logger.log(f'Producer properties: {utils.dump_dict_pretty(properties)}')
+        self.logger.log(f'Producer properties: {utils.dump_dict_pretty(properties)}', level='debug')
 
         while not self._producer_thread.stopped():
             electron = self._output_messages.get()
@@ -480,7 +480,7 @@ class Link:
         properties = dict(self._kafka_consumer_synchronous_properties)
         properties.update({'group.id': self._uid})
         consumer = Consumer(properties)
-        self.logger.log(f'[RPC] consumer properties: {utils.dump_dict_pretty(properties)}')
+        self.logger.log(f'[RPC] consumer properties: {utils.dump_dict_pretty(properties)}', level='debug')
         subscription = list(self._rpc_topics)
         consumer.subscribe(subscription)
         self.logger.log(f'[RPC] listening on: {subscription}')
@@ -519,7 +519,7 @@ class Link:
             properties = dict(self._kafka_consumer_common_properties)
 
         consumer = Consumer(properties)
-        self.logger.log(f'[MAIN] consumer properties: {utils.dump_dict_pretty(properties)}')
+        self.logger.log(f'[MAIN] consumer properties: {utils.dump_dict_pretty(properties)}', level='debug')
         prev_queued_messages = 0
 
         while not self._consumer_main_thread.stopped():
