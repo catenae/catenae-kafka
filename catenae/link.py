@@ -877,14 +877,11 @@ class Link:
             self._num_rpc_threads = num_rpc_threads
             self._num_main_threads = num_main_threads
 
-        if self._sequential:
-            if self._synchronous:
-                self.logger.log('execution mode: SYNC (sequential)')
-            else:
-                self.logger.log('execution mode: ASYNC (sequential)')
+        if self._synchronous:
+                self.logger.log('execution mode: SYNC, SEQ')
         else:
-            if self._synchronous:
-                self.logger.log('execution mode: SYNC')
+            if self._sequential:
+                self.logger.log('execution mode: ASYNC, SEQ')
             else:
                 self.logger.log('execution mode: ASYNC')
 
