@@ -478,7 +478,6 @@ class Link:
 
     def _kafka_consumer_rpc(self):
         properties = dict(self._kafka_consumer_synchronous_properties)
-        properties.update({'group.id': self._uid})
         consumer = Consumer(properties)
         self.logger.log(f'[RPC] consumer properties: {utils.dump_dict_pretty(properties)}', level='debug')
         subscription = list(self._rpc_topics)
