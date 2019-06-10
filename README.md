@@ -1,6 +1,4 @@
-
-<img src="./misc/logo.png" alt="Catenae Logo" style="width:500px;"/>
-
+# About Catenae
 Catenae is a Python library for **building distributed Stream Processing applications in minutes**. An application is usually composed of multiple micromodules (Python scripts) that can be interconnected through named streams. Catenae-based systems can scale up horizontally by increasing the number of instances of any micromodule without further configuration. The communication between micromodules is managed by Apache Kafka.
 
 Every module can consume and/or produce messages on one or multiple streams (Kafka topics). Catenae is a Python client library for Kafka that facilitates common tasks and whose main goal is to make you forget about Kafka.
