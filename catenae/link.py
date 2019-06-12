@@ -90,7 +90,8 @@ class Link:
 
         self._set_link_mode_and_booleans(link_mode)
         self._set_consumer_group(consumer_group, uid_consumer_group)
-        self._set_execution_opts(synchronous, sequential, num_rpc_threads, num_main_threads, input_mode)
+        self._set_execution_opts(synchronous, sequential, num_rpc_threads, num_main_threads,
+                                 input_mode)
         self._set_consumer_timeout(consumer_timeout)
 
         self._input_messages = LinkQueue()
@@ -146,7 +147,8 @@ class Link:
                     time.sleep(sleep_seconds)
 
             except Exception:
-                self.logger.log(f'exception raised when executing the loop: {target.__name__}', level='exception')
+                self.logger.log(f'exception raised when executing the loop: {target.__name__}',
+                                level='exception')
 
     def rpc_call(self, to='broadcast', method=None, args=None, kwargs=None):
         """ 
@@ -226,7 +228,13 @@ class Link:
         os._exit(exit_code)
 
     def loop(self, target, args=None, kwargs=None, interval=60, wait=False):
-        loop_task_kwargs = {'target': target, 'args': args, 'kwargs': kwargs, 'interval': interval, 'wait': wait}
+        loop_task_kwargs = {
+            'target': target,
+            'args': args,
+            'kwargs': kwargs,
+            'interval': interval,
+            'wait': wait
+        }
         loop_thread = Thread(target=self._loop_task, kwargs=loop_task_kwargs)
         loop_task_kwargs.update({'thread': loop_thread})
         loop_thread.start()
@@ -275,59 +283,64 @@ class Link:
 
         while not self._producer_thread.stopped():
             electron = self._output_messages.get()
+            self._produce(electron)
 
-            # All the queue items of the _output_messages must be individual
-            # instances of Electron
-            if type(electron) != Electron:
-                raise ValueError
+    def _produce(self, electron):
+        # All the queue items of the _output_messages must be individual
+        # instances of Electron
+        if type(electron) != Electron:
+            raise ValueError
 
-            # The key is enconded for its use as partition key
-            partition_key = None
-            if electron.key:
-                if type(electron.key) == str:
-                    partition_key = electron.key.encode('utf-8')
-                else:
-                    partition_key = pickle.dumps(electron.key, protocol=pickle.HIGHEST_PROTOCOL)
-            # Same partition key for the current instance if sequential mode
-            # is enabled so consumer can get messages in order
-            elif self._sequential:
-                partition_key = self._uid.encode('utf-8')
-
-            # If the destiny topic is not specified, the first is used
-            if not electron.topic:
-                if not self._output_topics:
-                    self.suicide('Electron / default output topic unset')
-                electron.topic = self._output_topics[0]
-
-            # Electrons are serialized
-            if electron.unpack_if_string and type(electron.value) == str:
-                serialized_electron = electron.value
+        # The key is enconded for its use as partition key
+        partition_key = None
+        if electron.key:
+            if type(electron.key) == str:
+                partition_key = electron.key.encode('utf-8')
             else:
-                serialized_electron = pickle.dumps(electron.get_sendable(), protocol=pickle.HIGHEST_PROTOCOL)
+                partition_key = pickle.dumps(electron.key, protocol=pickle.HIGHEST_PROTOCOL)
+        # Same partition key for the current instance if sequential mode
+        # is enabled so consumer can get messages in order
+        elif self._sequential:
+            partition_key = self._uid.encode('utf-8')
 
-            try:
-                # If partition_key = None, the partition.assignment.strategy
-                # is used to distribute the messages
-                self._producer.produce(topic=electron.topic, key=partition_key, value=serialized_electron)
+        # If the destiny topic is not specified, the first is used
+        if not electron.topic:
+            if not self._output_topics:
+                self.suicide('Electron / default output topic unset')
+            electron.topic = self._output_topics[0]
 
-                # Asynchronous
-                if self._asynchronous:
-                    self._producer.poll(0)
+        # Electrons are serialized
+        if electron.unpack_if_string and type(electron.value) == str:
+            serialized_electron = electron.value
+        else:
+            serialized_electron = pickle.dumps(electron.get_sendable(),
+                                               protocol=pickle.HIGHEST_PROTOCOL)
 
-                # Synchronous
-                else:
-                    # Wait for all messages in the Producer queue to be delivered.
-                    self._producer.flush()
+        try:
+            # If partition_key = None, the partition.assignment.strategy
+            # is used to distribute the messages
+            self._producer.produce(topic=electron.topic,
+                                   key=partition_key,
+                                   value=serialized_electron)
 
-                self.logger.log('electron produced', level='debug')
-
-            except Exception:
-                self.suicide('Kafka producer error', exception=True)
+            # Asynchronous
+            if self._asynchronous:
+                self._producer.poll(0)
 
             # Synchronous
-            if self._synchronous:
-                for callback in electron.callbacks:
-                    callback.execute()
+            else:
+                # Wait for all messages in the Producer queue to be delivered.
+                self._producer.flush()
+
+            self.logger.log('electron produced', level='debug')
+
+        except Exception:
+            self.suicide('Kafka producer error', exception=True)
+
+        # Synchronous
+        if self._synchronous:
+            for callback in electron.callbacks:
+                callback.execute()
 
     def _transform(self, electron, commit_kafka_message_callback, transform_callback):
         try:
@@ -449,10 +462,11 @@ class Link:
             # The destiny topic will be overwritten if desired in the
             # transform method (default, first output topic)
             if electron.previous_topic in self._rpc_topics:
-                self._transform_rpc_executor.submit(self._rpc_call, [electron, commit_kafka_message_callback])
+                self._transform_rpc_executor.submit(self._rpc_call,
+                                                    [electron, commit_kafka_message_callback])
             else:
-                self._transform_main_executor.submit(self._transform,
-                                                     [electron, commit_kafka_message_callback, transform_callback])
+                self._transform_main_executor.submit(
+                    self._transform, [electron, commit_kafka_message_callback, transform_callback])
 
     def _break_consumer_loop(self, subscription):
         return len(subscription) > 1 and self._input_mode != 'parity'
@@ -460,17 +474,20 @@ class Link:
     def _commit_kafka_message(self, consumer, message):
         commited = False
         attempts = 0
-        self.logger.log(f'trying to commit the message with value {message.value()} (attempt {attempts})',
-                        level='debug')
+        self.logger.log(
+            f'trying to commit the message with value {message.value()} (attempt {attempts})',
+            level='debug')
         while not commited:
             if attempts > 1:
-                self.logger.log(f'trying to commit the message with value {message.value()} (attempt {attempts})',
-                                level='warn')
+                self.logger.log(
+                    f'trying to commit the message with value {message.value()} (attempt {attempts})',
+                    level='warn')
             try:
                 consumer.commit(**{'message': message, 'asynchronous': False})
             except Exception:
-                self.logger.log(f'exception when trying to commit the message with value {message.value()}',
-                                level='exception')
+                self.logger.log(
+                    f'exception when trying to commit the message with value {message.value()}',
+                    level='exception')
                 continue
             commited = True
             attempts += 1
@@ -479,7 +496,8 @@ class Link:
     def _kafka_consumer_rpc(self):
         properties = dict(self._kafka_consumer_synchronous_properties)
         consumer = Consumer(properties)
-        self.logger.log(f'[RPC] consumer properties: {utils.dump_dict_pretty(properties)}', level='debug')
+        self.logger.log(f'[RPC] consumer properties: {utils.dump_dict_pretty(properties)}',
+                        level='debug')
         subscription = list(self._rpc_topics)
         consumer.subscribe(subscription)
         self.logger.log(f'[RPC] listening on: {subscription}')
@@ -518,7 +536,8 @@ class Link:
             properties = dict(self._kafka_consumer_common_properties)
 
         consumer = Consumer(properties)
-        self.logger.log(f'[MAIN] consumer properties: {utils.dump_dict_pretty(properties)}', level='debug')
+        self.logger.log(f'[MAIN] consumer properties: {utils.dump_dict_pretty(properties)}',
+                        level='debug')
         prev_queued_messages = 0
 
         while not self._consumer_main_thread.stopped():
@@ -579,7 +598,8 @@ class Link:
                             # Synchronous commit
                             if self._synchronous:
                                 # Commit when the transformation is commited
-                                self._input_messages.put((message, self._commit_kafka_message, [consumer, message]))
+                                self._input_messages.put(
+                                    (message, self._commit_kafka_message, [consumer, message]))
                                 continue
 
                             # Asynchronous (only one topic)
@@ -656,24 +676,20 @@ class Link:
             self._consumer_main_thread.stop()
 
     def send(self, output_content, topic=None):
-        try:
-            if type(output_content) == Electron:
-                if topic:
-                    output_content.topic = topic
-                output_content = output_content.deepcopy()
-                self._output_messages.put(output_content)
-                return
-            if type(output_content != list):
-                self._output_messages.put(Electron(value=output_content, topic=topic, unpack_if_string=True))
-                return
-            if type(output_content) == list:
-                for item in output_content:
-                    if type(item) == Electron:
-                        self._output_messages.put(item)
-                        continue
-                    self._output_messages.put(Electron(value=item, topic=topic, unpack_if_string=True))
-        except Exception:
-            self.logger.log(level='exception')
+        if type(output_content) == Electron:
+            if topic:
+                output_content.topic = topic
+            electron = output_content.deepcopy()
+        elif type(output_content != list):
+            electron = Electron(value=output_content, topic=topic, unpack_if_string=True)
+        elif type(output_content) == list:
+            for item in output_content:
+                self.send(item, topic=topic)
+
+        if self._synchronous:
+            self._produce(electron)
+        else:
+            self._output_messages.put(electron)
 
     def generator(self):
         self.logger.log('Generator method undefined. Disabled.')
@@ -754,10 +770,12 @@ class Link:
             self._set_input_topic_assignments()
 
         if hasattr(self, 'generator'):
-            self._generator_main_thread = Thread(target=self._thread_target, kwargs={'target': self.generator})
+            self._generator_main_thread = Thread(target=self._thread_target,
+                                                 kwargs={'target': self.generator})
             self._generator_main_thread.start()
 
-        self._consumer_main_thread = Thread(target=self._thread_target, kwargs={'target': self._kafka_consumer_main})
+        self._consumer_main_thread = Thread(target=self._thread_target,
+                                            kwargs={'target': self._kafka_consumer_main})
         self._consumer_main_thread.start()
 
     def _set_log_level(self, log_level):
@@ -766,7 +784,9 @@ class Link:
 
     def _set_connectors(self):
         try:
-            self._aerospike = AerospikeConnector(self._aerospike_host, self._aerospike_port, connect=True)
+            self._aerospike = AerospikeConnector(self._aerospike_host,
+                                                 self._aerospike_port,
+                                                 connect=True)
         except AttributeError:
             self._aerospike = None
 
@@ -824,7 +844,10 @@ class Link:
         })
 
         self._kafka_consumer_synchronous_properties = dict(self._kafka_consumer_common_properties)
-        self._kafka_consumer_synchronous_properties.update({'enable.auto.commit': False, 'auto.commit.interval.ms': 0})
+        self._kafka_consumer_synchronous_properties.update({
+            'enable.auto.commit': False,
+            'auto.commit.interval.ms': 0
+        })
 
         self._kafka_producer_common_properties = dict(common_properties)
         self._kafka_producer_common_properties.update({
@@ -849,7 +872,8 @@ class Link:
             # 'enable.idempotence': True, # not supported yet
         })
 
-    def _set_execution_opts(self, synchronous, sequential, num_rpc_threads, num_main_threads, input_mode):
+    def _set_execution_opts(self, synchronous, sequential, num_rpc_threads, num_main_threads,
+                            input_mode):
         if hasattr(self, 'sequential'):
             sequential = self._sequential
         if hasattr(self, 'synchronous'):
@@ -878,7 +902,7 @@ class Link:
             self._num_main_threads = num_main_threads
 
         if self._synchronous:
-                self.logger.log('execution mode: SYNC, SEQ')
+            self.logger.log('execution mode: SYNC, SEQ')
         else:
             if self._sequential:
                 self.logger.log('execution mode: ASYNC, SEQ')
@@ -955,13 +979,15 @@ class Link:
                             '--input',
                             action="store",
                             dest="input_topics",
-                            help='Kafka input topics. Several topics ' + 'can be specified separated by commas',
+                            help='Kafka input topics. Several topics ' +
+                            'can be specified separated by commas',
                             required=False)
         parser.add_argument('-o',
                             '--output',
                             action="store",
                             dest="output_topics",
-                            help='Kafka output topics. Several topics ' + 'can be specified separated by commas',
+                            help='Kafka output topics. Several topics ' +
+                            'can be specified separated by commas',
                             required=False)
         parser.add_argument('-k',
                             '--kafka-bootstrap-server',
