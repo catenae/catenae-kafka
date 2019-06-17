@@ -47,23 +47,24 @@ from .connectors.mongodb import MongodbConnector
 
 
 class Link:
-    MULTIPLE_KAFKA_INPUTS = 0
-    CUSTOM_OUTPUT = 1
-    MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT = 2
-    CUSTOM_INPUT = 3
 
     NO_INPUT_TOPIC_SLEEP_SECONDS = 1
 
     def __init__(self,
                  log_level='INFO',
                  input_mode='parity',
-                 consumer_group=None,
-                 consumer_timeout=300,
-                 uid_consumer_group=False,
                  synchronous=False,
                  sequential=False,
+                 uid_consumer_group=False,
                  num_rpc_threads=1,
-                 num_main_threads=1):
+                 num_main_threads=1,
+                 input_topics=None,
+                 output_topics=None,
+                 kafka_endpoint='localhost:9092',
+                 consumer_group=None,
+                 consumer_timeout=300,
+                 aerospike_endpoint=None,
+                 mongodb_endpoint=None):
 
         self._set_log_level(log_level)
         self.logger = Logger(self, self._log_level)
@@ -86,15 +87,106 @@ class Link:
         self._rpc_topics = [self.rpc_instance_topic, self.rpc_group_topic, self.rpc_broadcast_topic]
 
         self._load_args()
-
+        self._set_execution_opts(input_mode,
+                                 synchronous,
+                                 sequential,
+                                 num_rpc_threads,
+                                 num_main_threads,
+                                 input_topics,
+                                 output_topics,
+                                 kafka_endpoint,
+                                 consumer_timeout)
+        self._set_connectors_properties(aerospike_endpoint, mongodb_endpoint)
         self._set_consumer_group(consumer_group, uid_consumer_group)
-        self._set_execution_opts(synchronous, sequential, num_rpc_threads, num_main_threads,
-                                 input_mode)
-        self._set_consumer_timeout(consumer_timeout)
-
+   
         self._input_messages = LinkQueue()
         self._output_messages = LinkQueue()
         self._changed_input_topics = False
+
+    def _set_connectors_properties(self,
+                                   aerospike_endpoint,
+                                   mongodb_endpoint):
+        self._set_aerospike_properties(aerospike_endpoint)
+        if hasattr(self, '_aerospike_host'):
+            self.logger.log(f'aerospike_host: {self._aerospike_host}')
+        if hasattr(self, '_aerospike_port'):
+            self.logger.log(f'aerospike_port: {self._aerospike_port}')
+
+        self._set_mongodb_properties(mongodb_endpoint)
+        if hasattr(self, '_mongodb_host'):
+            self.logger.log(f'mongodb_host: {self._mongodb_host}')
+        if hasattr(self, '_mongodb_port'):
+            self.logger.log(f'mongodb_port: {self._mongodb_port}')
+
+    def _set_execution_opts(self,
+                            input_mode,
+                            synchronous,
+                            sequential,
+                            num_rpc_threads,
+                            num_main_threads,
+                            input_topics,
+                            output_topics,
+                            kafka_endpoint,
+                            consumer_timeout):
+
+        if not hasattr(self, '_input_mode'):
+            self._input_mode = input_mode
+        self.logger.log(f'input_mode: {self._input_mode}')
+
+        if hasattr(self, '_synchronous'):
+            synchronous = self._synchronous
+
+        if hasattr(self, '_sequential'):
+            sequential = self._sequential
+
+        if synchronous:
+            self._synchronous = True
+            self._sequential = True
+            self._asynchronous = False
+        else:
+            self._synchronous = False
+            self._sequential = sequential
+            self._asynchronous = True
+
+        if self._synchronous:
+            self.logger.log('execution mode: sync + seq')
+        else:
+            if self._sequential:
+                self.logger.log('execution mode: async + seq')
+            else:
+                self.logger.log('execution mode: async')
+
+        if hasattr(self, '_num_rpc_threads'):
+            num_rpc_threads = self._num_rpc_threads
+
+        if hasattr(self, '_num_main_threads'):
+            num_main_threads = self._num_main_threads
+
+        if synchronous or sequential:
+            self._num_main_threads = 1
+            self._num_rpc_threads = 1
+        else:
+            self._num_rpc_threads = num_rpc_threads
+            self._num_main_threads = num_main_threads
+        self.logger.log(f'num_rpc_threads: {self._num_rpc_threads}')
+        self.logger.log(f'num_main_threads: {self._num_main_threads}')
+
+        if not hasattr(self, '_input_topics'):
+            self._input_topics = input_topics
+        self.logger.log(f'input_topics: {self._input_topics}')
+
+        if not hasattr(self, '_output_topics'):
+            self._output_topics = output_topics
+        self.logger.log(f'output_topics: {self._output_topics}')
+
+        if not hasattr(self, '_kafka_endpoint'):
+            self._kafka_endpoint = kafka_endpoint
+        self.logger.log(f'kafka_endpoint: {self._kafka_endpoint}')
+
+        if not hasattr(self, '_consumer_timeout'):
+            self._consumer_timeout = consumer_timeout
+        self._consumer_timeout = self._consumer_timeout * 1000
+        self.logger.log(f'consumer_timeout: {self._consumer_timeout}')
 
     @property
     def input_topics(self):
@@ -737,7 +829,6 @@ class Link:
 
         self._launch_threads()
         self.logger.log(f'link {self._uid} is running')
-        self.logger.log(f'consumer group: {self._consumer_group}')
 
     def _launch_threads(self):
         if not self._kafka_endpoint:
@@ -803,6 +894,8 @@ class Link:
         else:
             self._consumer_group = f'catenae_{self.__class__.__name__.lower()}'
 
+        self.logger.log(f'consumer_group: {self._consumer_group}')
+
     def _set_kafka_common_properties(self):
         common_properties = {
             'bootstrap.servers': self._kafka_endpoint,
@@ -854,51 +947,6 @@ class Link:
             # 'enable.idempotence': True, # not supported yet
         })
 
-    def _set_execution_opts(self, synchronous, sequential, num_rpc_threads, num_main_threads,
-                            input_mode):
-        if hasattr(self, 'sequential'):
-            sequential = self._sequential
-        if hasattr(self, 'synchronous'):
-            synchronous = self._synchronous
-        elif hasattr(self, 'asynchronous'):
-            synchronous = not self._asynchronous
-        if hasattr(self, 'num_rpc_threads'):
-            num_rpc_threads = self._num_rpc_threads
-        if hasattr(self, 'num_main_threads'):
-            num_main_threads = self._num_main_threads
-
-        if synchronous:
-            self._synchronous = True
-            self._sequential = True
-            self._asynchronous = False
-        else:
-            self._synchronous = False
-            self._sequential = sequential
-            self._asynchronous = True
-
-        if synchronous or sequential:
-            self._num_main_threads = 1
-            self._num_rpc_threads = 1
-        else:
-            self._num_rpc_threads = num_rpc_threads
-            self._num_main_threads = num_main_threads
-
-        if self._synchronous:
-            self.logger.log('execution mode: SYNC, SEQ')
-        else:
-            if self._sequential:
-                self.logger.log('execution mode: ASYNC, SEQ')
-            else:
-                self.logger.log('execution mode: ASYNC')
-
-        if not hasattr(self, 'input_mode'):
-            self._input_mode = input_mode
-
-    def _set_consumer_timeout(self, consumer_timeout):
-        if not hasattr(self, 'consumer_timeout'):
-            self._consumer_timeout = consumer_timeout
-        self._consumer_timeout = self._consumer_timeout * 1000
-
     def _set_input_topic_assignments(self):
         if self._input_mode == 'parity':
             self._input_topic_assignments = {-1: -1}
@@ -928,32 +976,38 @@ class Link:
                             '--aerospike',
                             '--aerospike-bootstrap-server',
                             action="store",
-                            dest="aerospike_host_port",
+                            dest="aerospike_endpoint",
                             help='Aerospike bootstrap server. \
                             E.g., "localhost:3000"',
                             required=False)
 
-    def _initialize_aerospike_attributes(self, parsed_args):
-        if parsed_args.aerospike_host_port:
-            aerospike_host_port = parsed_args.aerospike_host_port.split(':')
-            self._aerospike_host = aerospike_host_port[0]
-            self._aerospike_port = int(aerospike_host_port[1])
+    def _set_aerospike_properties(self, aerospike_endpoint):
+        if aerospike_endpoint is None:
+            return
+        host_port = aerospike_endpoint.split(':')
+        if not hasattr(self, '_aerospike_host'):
+            self._aerospike_host = host_port[0]
+        if not hasattr(self, '_aerospike_port'):
+            self._aerospike_port = int(host_port[1])
 
     @staticmethod
     def _parse_mongodb_args(parser):
         parser.add_argument('-m',
                             '--mongodb',
                             action="store",
-                            dest="mongodb_host_port",
+                            dest="mongodb_endpoint",
                             help='MongoDB server. \
                             E.g., "localhost:27017"',
                             required=False)
 
-    def _initialize_mongodb_attributes(self, parsed_args):
-        if parsed_args.mongodb_host_port:
-            mongodb_host_port = parsed_args.mongodb_host_port.split(':')
-            self._mongodb_host = mongodb_host_port[0]
-            self._mongodb_port = int(mongodb_host_port[1])
+    def _set_mongodb_properties(self, mongodb_endpoint):
+        if mongodb_endpoint is None:
+            return
+        host_port = mongodb_endpoint.split(':')
+        if not hasattr(self, '_mongodb_host'):
+            self._mongodb_host = host_port[0]
+        if not hasattr(self, '_mongodb_port'):
+            self._mongodb_port = int(host_port[1])
 
     @staticmethod
     def _parse_kafka_args(parser):
@@ -990,7 +1044,7 @@ class Link:
                             help='Kafka consumer timeout in seconds.',
                             required=False)
 
-    def _initialize_kafka_attributes(self, args):
+    def _set_kafka_properties_from_args(self, args):
         if args.input_topics:
             self._input_topics = args.input_topics.split(',')
         else:
@@ -1052,7 +1106,7 @@ class Link:
                             help='Number of main threads.',
                             required=False)
 
-    def _initialize_catenae_attributes(self, args):
+    def _set_catenae_properties_from_args(self, args):
         if args.log_level:
             self._log_level = args.log_level
         if args.input_mode:
@@ -1061,8 +1115,6 @@ class Link:
             self._synchronous = True
         if args.sequential:
             self._sequential = True
-        if args.asynchronous:
-            self._asynchronous = True
         if args.uid_consumer_group:
             self._uid_consumer_group = True
         if args.num_rpc_threads:
@@ -1082,7 +1134,7 @@ class Link:
         link_args = parsed_args[0]
         self._args = parsed_args[1]
 
-        self._initialize_catenae_attributes(link_args)
-        self._initialize_kafka_attributes(link_args)
-        self._initialize_aerospike_attributes(link_args)
-        self._initialize_mongodb_attributes(link_args)
+        self._set_catenae_properties_from_args(link_args)
+        self._set_kafka_properties_from_args(link_args)
+        self._set_aerospike_properties(link_args.aerospike_endpoint)
+        self._set_mongodb_properties(link_args.mongodb_endpoint)
