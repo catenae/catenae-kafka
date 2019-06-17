@@ -56,7 +56,6 @@ class Link:
 
     def __init__(self,
                  log_level='INFO',
-                 link_mode=None,
                  input_mode='parity',
                  consumer_group=None,
                  consumer_timeout=300,
@@ -88,7 +87,6 @@ class Link:
 
         self._load_args()
 
-        self._set_link_mode_and_booleans(link_mode)
         self._set_consumer_group(consumer_group, uid_consumer_group)
         self._set_execution_opts(synchronous, sequential, num_rpc_threads, num_main_threads,
                                  input_mode)
@@ -390,7 +388,7 @@ class Link:
         # is set to the Kafka producer, delegate the remaining
         # work to the Kafka producer
 
-        if electrons and self._is_kafka_output:
+        if electrons:
             # The callback will be executed only for the last
             # electron if there are more than one
             electrons[-1].callbacks = []
@@ -755,10 +753,9 @@ class Link:
         self._transform_thread.start()
 
         # Kafka producer
-        if self._is_kafka_output:
-            producer_kwargs = {'target': self._kafka_producer}
-            self._producer_thread = Thread(target=self._thread_target, kwargs=producer_kwargs)
-            self._producer_thread.start()
+        producer_kwargs = {'target': self._kafka_producer}
+        self._producer_thread = Thread(target=self._thread_target, kwargs=producer_kwargs)
+        self._producer_thread.start()
 
         # Kafka RPC consumer
         consumer_kwargs = {'target': self._kafka_consumer_rpc}
@@ -766,9 +763,7 @@ class Link:
         self._consumer_rpc_thread.start()
 
         # Kafka main consumer
-        if self._is_multiple_kafka_input and self._input_mode == 'exp':
-            self._set_input_topic_assignments()
-
+        self._set_input_topic_assignments()
         if hasattr(self, 'generator'):
             self._generator_main_thread = Thread(target=self._thread_target,
                                                  kwargs={'target': self.generator})
@@ -807,19 +802,6 @@ class Link:
             self._consumer_group = consumer_group
         else:
             self._consumer_group = f'catenae_{self.__class__.__name__.lower()}'
-
-    def _set_link_mode_and_booleans(self, link_mode):
-        if not hasattr(self, 'link_mode'):
-            self._link_mode = link_mode
-        self._is_custom_output = self._link_mode == Link.CUSTOM_OUTPUT \
-            or self._link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT
-        self._is_kafka_output = not self._is_custom_output
-        self._is_custom_input = self._link_mode == Link.CUSTOM_INPUT
-        self._is_multiple_kafka_input = \
-            self._link_mode == Link.MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT \
-                or self._link_mode == Link.MULTIPLE_KAFKA_INPUTS
-        self._is_kafka_input = self._is_multiple_kafka_input \
-            or self._link_mode == Link.CUSTOM_OUTPUT
 
     def _set_kafka_common_properties(self):
         common_properties = {
@@ -920,21 +902,21 @@ class Link:
     def _set_input_topic_assignments(self):
         if self._input_mode == 'parity':
             self._input_topic_assignments = {-1: -1}
-            return
 
-        self._input_topic_assignments = {}
+        elif self._input_mode == 'exp':
+            self._input_topic_assignments = {}
 
-        if len(self._input_topics[0]) == 1:
-            self._input_topic_assignments[self._input_topics[0]] = -1
+            if len(self._input_topics[0]) == 1:
+                self._input_topic_assignments[self._input_topics[0]] = -1
 
-        window_size = 900  # in seconds, 15 minutes
-        topics_no = len(self._input_topics)
-        self.logger.log('input topics time assingments:')
-        for index, topic in enumerate(self._input_topics):
-            topic_assingment = \
-                self._get_index_assignment(window_size, index, topics_no)
-            self._input_topic_assignments[topic] = topic_assingment
-            self.logger.log(f' - {topic}: {topic_assingment} seconds')
+            window_size = 900  # in seconds, 15 minutes
+            topics_no = len(self._input_topics)
+            self.logger.log('input topics time assingments:')
+            for index, topic in enumerate(self._input_topics):
+                topic_assingment = \
+                    self._get_index_assignment(window_size, index, topics_no)
+                self._input_topic_assignments[topic] = topic_assingment
+                self.logger.log(f' - {topic}: {topic_assingment} seconds')
 
     @staticmethod
     def in_time(start_time, assigned_time):
@@ -1034,13 +1016,6 @@ class Link:
                             dest="log_level",
                             help='Catenae log level [debug|info|warning|error|critical].',
                             required=False)
-        parser.add_argument(
-            '--running-mode',
-            action="store",
-            dest="link_mode",
-            help=
-            'Link running mode [0(MULTIPLE_KAFKA_INPUTS)|1(CUSTOM_OUTPUT)|2(MULTIPLE_KAFKA_INPUTS_CUSTOM_OUTPUT)|3(CUSTOM_INPUT)].',
-            required=False)
         parser.add_argument('--input-mode',
                             action="store",
                             dest="input_mode",
@@ -1080,8 +1055,6 @@ class Link:
     def _initialize_catenae_attributes(self, args):
         if args.log_level:
             self._log_level = args.log_level
-        if args.link_mode:
-            self._link_mode = args.link_mode
         if args.input_mode:
             self._input_mode = args.input_mode
         if args.synchronous:
