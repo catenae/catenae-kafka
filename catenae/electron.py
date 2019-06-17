@@ -5,13 +5,19 @@ import copy
 
 
 class Electron:
-    def __init__(self, key=None, value=None, topic=None, previous_topic=None, unpack_if_string=False, callbacks=None):
+    def __init__(self,
+                 key=None,
+                 value=None,
+                 topic=None,
+                 previous_topic=None,
+                 unpack_if_string=False,
+                 callbacks=None):
         self.key = key
         self.value = value
         self.topic = topic  # Destination topic
         self.previous_topic = previous_topic
         self.unpack_if_string = unpack_if_string
-        if callbacks == None:
+        if callbacks is None:
             self.callbacks = []
         else:
             self.callbacks = callbacks
@@ -40,4 +46,5 @@ class Electron:
         return electron
 
     def copy(self):
-        return Electron(self.key, self.value, self.topic, self.previous_topic, self.unpack_if_string, self.callbacks)
+        return Electron(self.key, self.value, self.topic, self.previous_topic,
+                        self.unpack_if_string, self.callbacks)

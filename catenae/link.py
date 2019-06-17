@@ -765,7 +765,7 @@ class Link:
         if hasattr(self, 'consumer_main_thread'):
             self._consumer_main_thread.stop()
 
-    def send(self, output_content, topic=None):
+    def send(self, output_content, topic=None, callback=None, callbacks=None):
         if type(output_content) == Electron:
             if topic:
                 output_content.topic = topic
@@ -775,6 +775,11 @@ class Link:
         elif type(output_content) == list:
             for item in output_content:
                 self.send(item, topic=topic)
+
+        if callback is not None:
+            callbacks = [callback]
+        if callbacks is not None:
+            electron.callbacks = callbacks
 
         if self._synchronous:
             self._produce(electron)
