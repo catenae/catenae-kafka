@@ -127,11 +127,9 @@ class Link:
         if synchronous:
             self._synchronous = True
             self._sequential = True
-            self._asynchronous = False
         else:
             self._synchronous = False
             self._sequential = sequential
-            self._asynchronous = True
 
         if self._synchronous:
             self.logger.log('execution mode: sync + seq')
@@ -1074,11 +1072,6 @@ class Link:
                             action="store_true",
                             dest="sequential",
                             help='Sequential mode is enabled.',
-                            required=False)
-        parser.add_argument('--async',
-                            action="store_true",
-                            dest="asynchronous",
-                            help='Synchronous mode is disabled.',
                             required=False)
         parser.add_argument('--random-consumer-group',
                             action="store_true",
