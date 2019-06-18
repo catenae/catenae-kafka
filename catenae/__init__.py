@@ -6,7 +6,7 @@ from .electron import Electron
 from .link import Link
 from . import utils
 from .structures import CircularOrderedDict, CircularOrderedSet
-from .custom_queue import CustomQueue
+from .custom_queue import ThreadingQueue, ProcessingQueue
 from .custom_threading import Thread, ThreadPool
 
 __version__ = '1.0.0rc3'

@@ -423,7 +423,7 @@ class Link:
         # Even if no electrons are returned in the transform method,
         # continue so the input electron can be commited by the Kafka
         # consumer (synchronous mode, kafka_output).
-        if electrons == None:
+        if electrons is None:
             electrons = []
 
         # Already a list
@@ -672,8 +672,7 @@ class Link:
                             message_buffer.append(message)
                             current_queued_messages = len(message_buffer)
 
-                            self._input_messages.messages_left = \
-                                self._input_messages.messages_left - 1
+                            self._input_messages.decrement_messages_left()
 
                             # If there is only one message left, the offset is
                             # committed
@@ -682,8 +681,7 @@ class Link:
                                     self._input_messages.put(message)
                                 message_buffer = []
 
-                                self._input_messages.messages_left = \
-                                    self._input_messages.minimum_messages
+                                self._input_messages.reset_messages_left()
 
                             # Penalize if only one message was consumed
                             if not self._break_consumer_loop(subscription) \
