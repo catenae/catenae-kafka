@@ -44,6 +44,7 @@ from .custom_threading import Thread, ThreadPool
 from .custom_multiprocessing import Process
 from .connectors.aerospike import AerospikeConnector
 from .connectors.mongodb import MongodbConnector
+from .json_rpc import Server
 
 
 class Link:
@@ -838,6 +839,9 @@ class Link:
         consumer_kwargs = {'target': self._kafka_consumer_rpc}
         self._consumer_rpc_thread = Thread(target=self._thread_target, kwargs=consumer_kwargs)
         self._consumer_rpc_thread.start()
+
+        # JSON-RPC
+        Process(target=Server().run).start()
 
         # Kafka main consumer
         self._set_input_topic_assignments()
