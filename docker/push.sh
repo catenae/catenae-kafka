@@ -1,2 +1,3 @@
 #!/bin/bash
-docker push catenae/link:develop
+VERSION=${1:-develop}
+docker push catenae/link:$VERSION
