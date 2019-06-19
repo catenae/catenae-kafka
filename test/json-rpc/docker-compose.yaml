@@ -1,0 +1,23 @@
+version: '3.4'
+
+x-logging: &default-logging
+  options:
+    max-size: '50m'
+    max-file: '1'
+  driver: json-file
+
+services:
+
+  kafka:
+    image: catenae/kafka
+    logging: *default-logging
+
+  link:
+    image: catenae/link:develop
+    command: link.py -k kafka:9092
+    working_dir: /opt/catenae/test/json-rpc
+    ports:
+      - 9494:9494
+    restart: always
+    depends_on:
+      - kafka

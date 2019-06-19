@@ -39,12 +39,12 @@ from . import utils
 from .electron import Electron
 from .callback import Callback
 from .logger import Logger
-from .custom_queue import LinkQueue
+from .custom_queue import LinkQueue, ProcessingQueue
 from .custom_threading import Thread, ThreadPool
 from .custom_multiprocessing import Process
 from .connectors.aerospike import AerospikeConnector
 from .connectors.mongodb import MongodbConnector
-from .json_rpc import Server
+from .json_rpc import JsonRPC
 
 
 class Link:
@@ -96,6 +96,7 @@ class Link:
 
         self._input_messages = LinkQueue()
         self._output_messages = LinkQueue()
+        self._p2p_jsonrpc_queue = ProcessingQueue()
         self._changed_input_topics = False
 
     def _set_connectors_properties(self, aerospike_endpoint, mongodb_endpoint):
@@ -841,7 +842,8 @@ class Link:
         self._consumer_rpc_thread.start()
 
         # JSON-RPC
-        Process(target=Server().run).start()
+        self.logger.log(self._p2p_jsonrpc_queue)
+        Process(target=JsonRPC(self._p2p_jsonrpc_queue).run).start()
 
         # Kafka main consumer
         self._set_input_topic_assignments()

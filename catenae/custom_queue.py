@@ -5,30 +5,37 @@ import threading
 import multiprocessing
 import time
 from .utils import get_timestamp
-from abc import ABC
 
 
-class CustomQueue(ABC):
+class CustomQueue:
     BLOCKING_SECONDS = 0.1
+
+    def __init__(self, size=0, circular=False):
+        self._size = size
+        self._circular = circular
+
+    def _truncate(self):
+        if self._size > 0 and len(self._queue) > self._size:
+            self._queue.pop(0)
+
+    def put(self):
+        pass
+
+    def get(self):
+        pass
 
     class EmptyError(Exception):
         def __init__(self, message=None):
             if message is None:
                 message = 'The queue is empty'
-            super(CustomQueue.EmptyError, self).__init__(message)
+            super().__init__(message)
 
-    def __init__(self, size=0, circular=False, lock=None):
-        self._size = size
-        self._circular = circular
+
+class ThreadingQueue(CustomQueue):
+    def __init__(self, size=0, circular=False):
+        super().__init__(size, circular)
         self._queue = list()
-        if lock is None:
-            raise Exception('')
-        self._lock = lock
-
-    def _truncate(self):
-        # Used by put(), lock already acquired
-        if self._size > 0 and len(self._queue) > self._size:
-            self._queue.pop(0)
+        self._lock = threading.Lock()
 
     def put(self, item, block=True, timeout=None):
         if self._circular:
@@ -47,8 +54,8 @@ class CustomQueue(ABC):
                 return
             self._lock.release()
             if not block:
-                raise CustomQueue.EmptyError
-            time.sleep(CustomQueue.BLOCKING_SECONDS)
+                raise ThreadingQueue.EmptyError
+            time.sleep(ThreadingQueue.BLOCKING_SECONDS)
 
     def get(self, block=True, timeout=None):
         start_timestamp = get_timestamp()
@@ -60,20 +67,41 @@ class CustomQueue(ABC):
                 return item
             self._lock.release()
             if not block:
-                raise CustomQueue.EmptyError
-            time.sleep(CustomQueue.BLOCKING_SECONDS)
-
-
-class ThreadingQueue(CustomQueue):
-    def __init__(self, size=0, circular=False):
-        lock = threading.Lock()
-        super().__init__(size, circular, lock)
+                raise ThreadingQueue.EmptyError
+            time.sleep(ThreadingQueue.BLOCKING_SECONDS)
 
 
 class ProcessingQueue(CustomQueue):
     def __init__(self, size=0, circular=False):
-        lock = multiprocessing.Lock()
-        super().__init__(size, circular, lock)
+        super().__init__(size, circular)
+        self._queue = multiprocessing.Queue()
+
+    def put(self, item, block=True, timeout=None):
+        if self._circular:
+            self._queue.put(item)
+            self._truncate()
+            return
+
+        start_timestamp = get_timestamp()
+        while timeout is None or get_timestamp() - start_timestamp < timeout:
+            if self._size <= 0 or len(self._queue) < self._size:
+                self._queue.put(item)
+                return
+
+            if not block:
+                raise ProcessingQueue.EmptyError
+            time.sleep(ProcessingQueue.BLOCKING_SECONDS)
+
+    def get(self, block=True, timeout=None):
+        start_timestamp = get_timestamp()
+        while timeout is None or get_timestamp() - start_timestamp < timeout:
+            item = self._queue.get()
+            if item is not None:
+                return item
+
+            if not block:
+                raise ProcessingQueue.EmptyError
+            time.sleep(ProcessingQueue.BLOCKING_SECONDS)
 
 
 class LinkQueue(ThreadingQueue):

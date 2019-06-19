@@ -19,3 +19,4 @@ RUN \
     pip uninstall -y catenae \
     && cd /opt/catenae \
     && python setup.py install
+RUN pip install gunicorn==19.9.0
