@@ -21,7 +21,6 @@ class ThreadPool:
     def __init__(self, link_instance, num_threads=1):
         self.link_instance = link_instance
         self.tasks_queue = Queue()
-
         self.threads = []
         for i in range(num_threads):
             thread = Thread(target=self._worker_target, args=[i])

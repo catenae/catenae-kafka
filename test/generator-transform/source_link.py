@@ -12,12 +12,11 @@ class SourceLink(Link):
 
     def generator(self):
         while True:
-            try:
-                message = self._p2p_jsonrpc_queue.get()
-                self.logger.log(f"{type(message)}: {message}")
-            except Exception:
-                continue
+            self.message_count += 1
+            self.send(self.message_count)
+            self.logger.log(f'Message "{self.message_count}" sent')
+            time.sleep(1)
 
 
 if __name__ == "__main__":
-    SourceLink(synchronous=True).start()
+    SourceLink().start()

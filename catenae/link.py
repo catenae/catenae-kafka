@@ -73,6 +73,7 @@ class Link:
 
         self._launched = False
         self._input_topics_lock = Lock()
+        self._rpc_lock = Lock()
 
         # Preserve the id if the container restarts
         if 'CATENAE_DOCKER' in os.environ \
@@ -96,7 +97,8 @@ class Link:
 
         self._input_messages = LinkQueue()
         self._output_messages = LinkQueue()
-        self._p2p_jsonrpc_queue = ProcessingQueue()
+        self._jsonrpc_request_queue = ProcessingQueue()
+        self._jsonrpc_response_queue = ProcessingQueue()
         self._changed_input_topics = False
 
     def _set_connectors_properties(self, aerospike_endpoint, mongodb_endpoint):
@@ -244,7 +246,27 @@ class Link:
                             topic=topic)
         self.send(electron, synchronous=True)
 
-    def _rpc_call(self, electron, commit_kafka_message_callback):
+    def _rpc_request_monitor(self):
+        while True:
+            method, kwargs = self._jsonrpc_request_queue.get()
+            result = self._jsonrpc_call(method, kwargs)
+            self._jsonrpc_response_queue.put(result)
+
+    def _jsonrpc_call(self, method, kwargs=None):
+        if kwargs is None:
+            kwargs = {}
+
+        self._rpc_lock.acquire()
+        try:
+            return getattr(self, method)(**kwargs)
+        except Exception:
+            self.logger.log(level='exception')
+        finally:
+            self._rpc_lock.release()
+
+    def _kafka_rpc_call(self, electron, commit_kafka_message_callback):
+        self._rpc_lock.acquire()
+
         if not 'method' in electron.value:
             self.logger.log(f'invalid RPC invocation: {electron.value}', level='error')
             return
@@ -273,32 +295,33 @@ class Link:
         finally:
             if self._synchronous:
                 commit_kafka_message_callback.execute()
-            return
+            self._rpc_lock.release()
 
     def suicide(self, message=None, exception=False, exit_code=1):
-        if not message:
-            message = 'Suicide method invoked'
+        if message is None:
+            message = '[SUICIDE]'
+        else:
+            message = f'[SUICIDE] {message}'
 
-        if self._kafka_endpoint:
-            if hasattr(self, '_producer_thread'):
-                self._producer_thread.stop()
-            if hasattr(self, '_consumer_rpc_thread'):
-                self._consumer_rpc_thread.stop()
-            if hasattr(self, '_generator_main_thread'):
-                self._generator_main_thread.stop()
-            if hasattr(self, '_consumer_main_thread'):
-                self._consumer_main_thread.stop()
-            if hasattr(self, '_transform_thread'):
-                self._transform_thread.stop()
+        self._producer_thread.stop()
+        self._transform_thread.stop()
+        self._consumer_rpc_thread.stop()
+        self._rpc_request_monitor_thread.stop()
+        self._generator_main_thread.stop()
+        self._consumer_main_thread.stop()
 
-        message += ' Exiting...'
+        for thread in self._transform_rpc_executor.threads:
+            thread.stop()
+        for thread in self._transform_main_executor.threads:
+            thread.stop()
+
         if exception:
             self.logger.log(message, level='exception')
             exit_code = 1
         elif exit_code == 0:
             self.logger.log(message)
         else:
-            self.logger.log(message, level='error')
+            self.logger.log(message, level='warn')
 
         os._exit(exit_code)
 
@@ -402,11 +425,14 @@ class Link:
                 callback.execute()
 
     def _transform(self, electron, commit_kafka_message_callback, transform_callback):
+        self._rpc_lock.acquire()
         try:
             transform_result = self.transform(electron)
             self.logger.log('electron transformed', level='debug')
         except Exception:
             self.suicide('exception during the execution of "transform"', exception=True)
+        finally:
+            self._rpc_lock.release()
 
         if type(transform_result) == tuple:
             electrons = transform_result[0]
@@ -521,7 +547,7 @@ class Link:
             # The destiny topic will be overwritten if desired in the
             # transform method (default, first output topic)
             if electron.previous_topic in self._rpc_topics:
-                self._transform_rpc_executor.submit(self._rpc_call,
+                self._transform_rpc_executor.submit(self._kafka_rpc_call,
                                                     [electron, commit_kafka_message_callback])
             else:
                 self._transform_main_executor.submit(
@@ -831,7 +857,6 @@ class Link:
         # Transform
         self._transform_rpc_executor = ThreadPool(self, self._num_rpc_threads)
         self._transform_main_executor = ThreadPool(self, self._num_main_threads)
-
         transform_kwargs = {'target': self._input_handler}
         self._transform_thread = Thread(target=self._thread_target, kwargs=transform_kwargs)
         self._transform_thread.start()
@@ -841,17 +866,21 @@ class Link:
         self._consumer_rpc_thread = Thread(target=self._thread_target, kwargs=consumer_kwargs)
         self._consumer_rpc_thread.start()
 
+        # RPC requests thread
+        self._rpc_request_monitor_thread = Thread(target=self._rpc_request_monitor)
+        self._rpc_request_monitor_thread.start()
+
         # JSON-RPC
-        self.logger.log(self._p2p_jsonrpc_queue)
-        Process(target=JsonRPC(self._p2p_jsonrpc_queue).run).start()
+        Process(
+            target=JsonRPC(self._jsonrpc_request_queue, self._jsonrpc_response_queue).run).start()
+
+        # Generator
+        self._generator_main_thread = Thread(target=self._thread_target,
+                                             kwargs={'target': self.generator})
+        self._generator_main_thread.start()
 
         # Kafka main consumer
         self._set_input_topic_assignments()
-        if hasattr(self, 'generator'):
-            self._generator_main_thread = Thread(target=self._thread_target,
-                                                 kwargs={'target': self.generator})
-            self._generator_main_thread.start()
-
         self._consumer_main_thread = Thread(target=self._thread_target,
                                             kwargs={'target': self._kafka_consumer_main})
         self._consumer_main_thread.start()
