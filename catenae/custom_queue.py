@@ -58,6 +58,9 @@ class ThreadingQueue(CustomQueue):
             time.sleep(ThreadingQueue.BLOCKING_SECONDS)
 
     def get(self, block=True, timeout=None):
+        if timeout is not None:
+            block = False
+
         start_timestamp = get_timestamp()
         while timeout is None or get_timestamp() - start_timestamp < timeout:
             self._lock.acquire()
@@ -65,10 +68,14 @@ class ThreadingQueue(CustomQueue):
                 item = self._queue.pop(0)
                 self._lock.release()
                 return item
+
             self._lock.release()
-            if not block:
+            if timeout is None and not block:
                 raise ThreadingQueue.EmptyError
             time.sleep(ThreadingQueue.BLOCKING_SECONDS)
+
+        if not block:
+            raise ThreadingQueue.EmptyError
 
 
 class ProcessingQueue(CustomQueue):
@@ -93,15 +100,21 @@ class ProcessingQueue(CustomQueue):
             time.sleep(ProcessingQueue.BLOCKING_SECONDS)
 
     def get(self, block=True, timeout=None):
+        if timeout is not None:
+            block = False
+
         start_timestamp = get_timestamp()
         while timeout is None or get_timestamp() - start_timestamp < timeout:
             item = self._queue.get()
             if item is not None:
                 return item
 
-            if not block:
+            if timeout is None and not block:
                 raise ProcessingQueue.EmptyError
             time.sleep(ProcessingQueue.BLOCKING_SECONDS)
+
+        if not block:
+            raise ProcessingQueue.EmptyError
 
 
 class LinkQueue(ThreadingQueue):

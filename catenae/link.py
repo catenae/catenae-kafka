@@ -28,14 +28,14 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import math
-from threading import Lock
+from threading import Lock, current_thread
+from multiprocessing import Pipe
 from pickle5 import pickle
 import time
 import argparse
 from uuid import uuid4
 import os
 from confluent_kafka import Producer, Consumer, KafkaError
-from multiprocessing import Pipe
 import signal
 from . import utils
 from .electron import Electron
@@ -52,6 +52,7 @@ from .json_rpc import JsonRPC
 class Link:
 
     NO_INPUT_TOPIC_SLEEP_SECONDS = 1
+    THREAD_LOOP_TIMEOUT = 3
 
     def __init__(self,
                  log_level='INFO',
@@ -209,7 +210,7 @@ class Link:
         if wait:
             time.sleep(interval)
 
-        while not thread.stopped():
+        while not thread.stopped:
             try:
                 self.logger.log(f'new loop iteration ({target.__name__})')
                 start_timestamp = utils.get_timestamp()
@@ -241,7 +242,7 @@ class Link:
             signal_mame = 'SIGINT'
         elif sig == signal.SIGQUIT:
             signal_mame = 'SIGQUIT'
-        self.suicide(signal_mame)
+        self.suicide(f'({signal_mame})')
 
     def rpc_call(self, to='broadcast', method=None, args=None, kwargs=None):
         """ 
@@ -263,8 +264,12 @@ class Link:
         self.send(electron, synchronous=True)
 
     def _rpc_request_monitor(self):
-        while True:
-            method, kwargs = self._jsonrpc_conn1.recv()
+        while not self._rpc_request_monitor_thread.stopped:
+            request = self._jsonrpc_conn1.poll(timeout=Link.THREAD_LOOP_TIMEOUT)
+            if not request:
+                continue
+
+            method, kwargs = request
             result = self._jsonrpc_call(method, kwargs)
             self._jsonrpc_conn1.send(result)
 
@@ -319,8 +324,16 @@ class Link:
         else:
             message = f'[SUICIDE] {message}'
 
+        if exception:
+            self.logger.log(message, level='exception')
+            exit_code = 1
+        elif exit_code == 0:
+            self.logger.log(message)
+        else:
+            self.logger.log(message, level='warn')
+
         self._producer_thread.stop()
-        self._transform_thread.stop()
+        self._input_handler_thread.stop()
         self._consumer_rpc_thread.stop()
         self._rpc_request_monitor_thread.stop()
         self._generator_main_thread.stop()
@@ -331,15 +344,27 @@ class Link:
         for thread in self._transform_main_executor.threads:
             thread.stop()
 
-        if exception:
-            self.logger.log(message, level='exception')
-            exit_code = 1
-        elif exit_code == 0:
-            self.logger.log(message)
-        else:
-            self.logger.log(message, level='warn')
+        self.logger.log('stopping threads...')
 
+        self._producer_thread.join()
+        self._input_handler_thread.join()
+        self._consumer_rpc_thread.join()
+        self._rpc_request_monitor_thread.join()
+        self._generator_main_thread.join()
+        self._consumer_main_thread.join()
+
+        for i, thread in enumerate(self._transform_rpc_executor.threads):
+            self._join_if_not_current_thread(thread, f'{i} _transform_rpc_executor')
+            thread.join()
+        for i, thread in enumerate(self._transform_main_executor.threads):
+            self._join_if_not_current_thread(thread, f'{i} _transform_rpc_executor')
+
+        self.logger.log(f'link {self.uid} stopped')
         os._exit(exit_code)
+
+    def _join_if_not_current_thread(self, thread, name):
+        if thread is not current_thread():
+            thread.join()
 
     def loop(self, target, args=None, kwargs=None, interval=60, wait=False):
         loop_task_kwargs = {
@@ -373,8 +398,12 @@ class Link:
         return process
 
     def _kafka_producer(self):
-        while not self._producer_thread.stopped():
-            electron = self._output_messages.get()
+        while not self._producer_thread.stopped:
+            try:
+                electron = self._output_messages.get(timeout=Link.THREAD_LOOP_TIMEOUT, block=False)
+            except LinkQueue.EmptyError:
+                continue
+
             self._produce(electron)
 
     def _produce(self, electron, synchronous=None):
@@ -511,7 +540,7 @@ class Link:
             commit_kafka_message_callback.execute()
 
     def _input_handler(self):
-        while not self._transform_thread.stopped():
+        while not self._input_handler_thread.stopped:
             self.logger.log('waiting for a new electron to transform...', level='debug')
 
             transform_callback = Callback()
@@ -603,7 +632,7 @@ class Link:
         consumer.subscribe(subscription)
         self.logger.log(f'[RPC] listening on: {subscription}')
 
-        while not self._consumer_rpc_thread.stopped():
+        while not self._consumer_rpc_thread.stopped:
             try:
                 message = consumer.poll(5)
 
@@ -641,7 +670,7 @@ class Link:
                         level='debug')
         prev_queued_messages = 0
 
-        while not self._consumer_main_thread.stopped():
+        while not self._consumer_main_thread.stopped:
             while not self._input_topics:
                 self.logger.log('No input topics, waiting...', level='debug')
                 time.sleep(Link.NO_INPUT_TOPIC_SLEEP_SECONDS)
@@ -672,7 +701,8 @@ class Link:
                 try:
                     start_time = utils.get_timestamp_ms()
                     assigned_time = current_input_topic_assignments[topic]
-                    while assigned_time == -1 or Link.in_time(start_time, assigned_time):
+                    while (assigned_time == -1 or Link.in_time(start_time, assigned_time)) \
+                    and not self._consumer_main_thread.stopped:
                         # Subscribe to the topics again if input topics have changed
                         with self._input_topics_lock:
                             if self._changed_input_topics:
@@ -680,7 +710,7 @@ class Link:
                                 # outer loop so both loops are broken
                                 break
 
-                        message = consumer.poll(5)
+                        message = consumer.poll(Link.THREAD_LOOP_TIMEOUT)
 
                         if not message or (not message.key() and not message.value()):
                             if not self._break_consumer_loop(subscription):
@@ -771,8 +801,7 @@ class Link:
 
     def transform(self, _):
         # If the transform method was left blank, stop the main consumer
-        if hasattr(self, 'consumer_main_thread'):
-            self._consumer_main_thread.stop()
+        self._consumer_main_thread.stop()
 
     def send(self, output_content, topic=None, callback=None, callbacks=None, synchronous=None):
         if type(output_content) == Electron:
@@ -875,8 +904,8 @@ class Link:
         self._transform_rpc_executor = ThreadPool(self, self._num_rpc_threads)
         self._transform_main_executor = ThreadPool(self, self._num_main_threads)
         transform_kwargs = {'target': self._input_handler}
-        self._transform_thread = Thread(target=self._thread_target, kwargs=transform_kwargs)
-        self._transform_thread.start()
+        self._input_handler_thread = Thread(target=self._thread_target, kwargs=transform_kwargs)
+        self._input_handler_thread.start()
 
         # Kafka RPC consumer
         consumer_kwargs = {'target': self._kafka_consumer_rpc}
