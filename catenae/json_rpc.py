@@ -13,48 +13,41 @@ from .logger import Logger
 
 
 class JsonRPC:
-    def __init__(self, request_queue, response_queue):
+    def __init__(self, pipe_connection):
         self.app = Flask(__name__)
         CORS(self.app)
         api = Api(self.app)
         api.add_resource(JsonRPC.Endpoint,
                          '/',
-                         resource_class_kwargs={
-                             'request_queue': request_queue,
-                             'response_queue': response_queue
-                         })
+                         resource_class_kwargs={'pipe_connection': pipe_connection})
 
     class Endpoint(Resource):
-        def __init__(self, request_queue, response_queue):
-            self.request_queue = request_queue
-            self.response_queue = response_queue
+        def __init__(self, pipe_connection):
+            self.pipe_connection = pipe_connection
 
-        def check_valid_call(self, rpc_request):
+        def check_valid_jsonrpc_request(self, rpc_request):
             if 'jsonrpc' not in rpc_request:
                 raise AttributeError
             if rpc_request['jsonrpc'] != '2.0':
                 raise ValueError
 
-            # if 'method' not in rpc_request:
-            #     raise AttributeError
-            # if type(rpc_request['method']) != str:
-            #     raise ValueError
+            if 'method' not in rpc_request:
+                raise AttributeError
+            if type(rpc_request['method']) is not str:
+                raise ValueError
 
-            # if 'params' in rpc_request:
-            #     if type(rpc_request['params']) != dict:
-            #         raise ValueError
-            #     for key, value in rpc_request['params']:
-            #         if type(key) != str:
-            #             raise ValueError
+            if 'params' in rpc_request:
+                if type(rpc_request['params']) is not dict:
+                    raise ValueError
 
-            # if 'id' not in rpc_request:
-            #     raise AttributeError
+            if 'id' not in rpc_request:
+                raise AttributeError
 
         def post(self):
             rpc_request = request.get_json(force=True)
 
             try:
-                self.check_valid_call(rpc_request)
+                self.check_valid_jsonrpc_request(rpc_request)
             except (AttributeError, ValueError):
                 return Response(status=400)
 
@@ -63,8 +56,8 @@ class JsonRPC:
             else:
                 queue_request = (rpc_request['method'], None)
 
-            self.request_queue.put(queue_request)
-            result = self.response_queue.get()
+            self.pipe_connection.send(queue_request)
+            result = self.pipe_connection.recv()
 
             response = {'jsonrpc': '2.0', 'result': result, 'id': rpc_request['id']}
             return response, 200

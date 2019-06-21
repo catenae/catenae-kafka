@@ -35,6 +35,7 @@ import argparse
 from uuid import uuid4
 import os
 from confluent_kafka import Producer, Consumer, KafkaError
+from multiprocessing import Pipe
 from . import utils
 from .electron import Electron
 from .callback import Callback
@@ -97,8 +98,8 @@ class Link:
 
         self._input_messages = LinkQueue()
         self._output_messages = LinkQueue()
-        self._jsonrpc_request_queue = ProcessingQueue()
-        self._jsonrpc_response_queue = ProcessingQueue()
+        self._jsonrpc_conn1, self._jsonrpc_conn2 = Pipe()
+
         self._changed_input_topics = False
 
     def _set_connectors_properties(self, aerospike_endpoint, mongodb_endpoint):
@@ -248,9 +249,9 @@ class Link:
 
     def _rpc_request_monitor(self):
         while True:
-            method, kwargs = self._jsonrpc_request_queue.get()
+            method, kwargs = self._jsonrpc_conn1.recv()
             result = self._jsonrpc_call(method, kwargs)
-            self._jsonrpc_response_queue.put(result)
+            self._jsonrpc_conn1.send(result)
 
     def _jsonrpc_call(self, method, kwargs=None):
         if kwargs is None:
@@ -871,8 +872,7 @@ class Link:
         self._rpc_request_monitor_thread.start()
 
         # JSON-RPC
-        Process(
-            target=JsonRPC(self._jsonrpc_request_queue, self._jsonrpc_response_queue).run).start()
+        Process(target=JsonRPC(self._jsonrpc_conn2).run).start()
 
         # Generator
         self._generator_main_thread = Thread(target=self._thread_target,
