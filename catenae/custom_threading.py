@@ -8,14 +8,14 @@ from .custom_queue import ThreadingQueue
 class Thread(threading.Thread):
     def __init__(self, **kwargs):
         super(Thread, self).__init__(**kwargs)
-        self._stopped = False
+        self._will_stop = False
 
     def stop(self):
-        self._stopped = True
+        self._will_stop = True
 
     @property
-    def stopped(self):
-        return self._stopped
+    def will_stop(self):
+        return self._will_stop
 
 
 class ThreadPool:
@@ -32,7 +32,7 @@ class ThreadPool:
         self.tasks_queue.put((target, args, kwargs))
 
     def _worker_target(self, i):
-        while not self.threads[i].stopped:
+        while not self.threads[i].will_stop:
             try:
                 target, args, kwargs = self.tasks_queue.get(timeout=1, block=False)
                 if args:
@@ -44,5 +44,4 @@ class ThreadPool:
             except ThreadingQueue.EmptyError:
                 pass
             except Exception:
-                self.link_instance.logger.log(f'exception during the execution of a task',
-                                              level='exception')
+                self.link_instance.logger.log(f'exception during the execution of a task', level='exception')

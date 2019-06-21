@@ -14,10 +14,6 @@ class CustomQueue:
         self._size = size
         self._circular = circular
 
-    def _truncate(self):
-        if self._size > 0 and len(self._queue) > self._size:
-            self._queue.pop(0)
-
     def put(self):
         pass
 
@@ -36,6 +32,10 @@ class ThreadingQueue(CustomQueue):
         super().__init__(size, circular)
         self._queue = list()
         self._lock = threading.Lock()
+
+    def _truncate(self):
+        if self._size > 0 and len(self._queue) > self._size:
+            self._queue.pop(0)
 
     def put(self, item, block=True, timeout=None):
         if self._circular:
@@ -76,45 +76,6 @@ class ThreadingQueue(CustomQueue):
 
         if not block:
             raise ThreadingQueue.EmptyError
-
-
-class ProcessingQueue(CustomQueue):
-    def __init__(self, size=0, circular=False):
-        super().__init__(size, circular)
-        self._queue = multiprocessing.Queue()
-
-    def put(self, item, block=True, timeout=None):
-        if self._circular:
-            self._queue.put(item)
-            self._truncate()
-            return
-
-        start_timestamp = get_timestamp()
-        while timeout is None or get_timestamp() - start_timestamp < timeout:
-            if self._size <= 0 or len(self._queue) < self._size:
-                self._queue.put(item)
-                return
-
-            if not block:
-                raise ProcessingQueue.EmptyError
-            time.sleep(ProcessingQueue.BLOCKING_SECONDS)
-
-    def get(self, block=True, timeout=None):
-        if timeout is not None:
-            block = False
-
-        start_timestamp = get_timestamp()
-        while timeout is None or get_timestamp() - start_timestamp < timeout:
-            item = self._queue.get()
-            if item is not None:
-                return item
-
-            if timeout is None and not block:
-                raise ProcessingQueue.EmptyError
-            time.sleep(ProcessingQueue.BLOCKING_SECONDS)
-
-        if not block:
-            raise ProcessingQueue.EmptyError
 
 
 class LinkQueue(ThreadingQueue):

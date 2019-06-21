@@ -6,24 +6,29 @@ from flask_restful import reqparse, abort, Api, Resource
 from flask_cors import CORS
 from gunicorn.app.base import BaseApplication
 from gunicorn.six import iteritems
-from .custom_queue import ProcessingQueue
 import sys
 import logging
 from .logger import Logger
+from os import environ
 
 
 class JsonRPC:
-    def __init__(self, pipe_connection):
+    def __init__(self, pipe_connection, logger):
+        self.logger = logger
         self.app = Flask(__name__)
         CORS(self.app)
         api = Api(self.app)
         api.add_resource(JsonRPC.Endpoint,
                          '/',
-                         resource_class_kwargs={'pipe_connection': pipe_connection})
+                         resource_class_kwargs={
+                             'pipe_connection': pipe_connection,
+                             'logger': logger
+                         })
 
     class Endpoint(Resource):
-        def __init__(self, pipe_connection):
+        def __init__(self, pipe_connection, logger):
             self.pipe_connection = pipe_connection
+            self.logger = logger
 
         def check_valid_jsonrpc_request(self, rpc_request):
             if 'jsonrpc' not in rpc_request:
@@ -62,18 +67,18 @@ class JsonRPC:
             response = {'jsonrpc': '2.0', 'result': result, 'id': rpc_request['id']}
             return response, 200
 
-    class StreamHider:
-        def write(self, _):
-            pass
+    class StreamToLogger:
+        def __init__(self, logger, level='info'):
+            self.logger = logger
+            self.level = level
 
-        def flush(self):
-            pass
+        def write(self, text):
+            if text.strip():
+                self.logger.log(text, level=self.level)
 
     def run(self):
-        sys.stdout = JsonRPC.StreamHider()
-        sys.stderr = JsonRPC.StreamHider()
-
-        options = {'bind': '0.0.0.0:9494', 'workers': 1, 'timeout': 60}
+        sys.stderr = JsonRPC.StreamToLogger(self.logger)
+        options = {'bind': f"0.0.0.0:{environ['JSONRPC_PORT']}", 'workers': 1, 'timeout': 60}
         Server(self.app, options).run()
 
 
