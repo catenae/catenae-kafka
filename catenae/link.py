@@ -36,6 +36,7 @@ from uuid import uuid4
 import os
 from confluent_kafka import Producer, Consumer, KafkaError
 from multiprocessing import Pipe
+import signal
 from . import utils
 from .electron import Electron
 from .callback import Callback
@@ -227,6 +228,20 @@ class Link:
             except Exception:
                 self.logger.log(f'exception raised when executing the loop: {target.__name__}',
                                 level='exception')
+
+    def _setup_signal_handlers(self):
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        signal.signal(signal.SIGQUIT, self._signal_handler)
+
+    def _signal_handler(self, sig, frame):
+        if sig == signal.SIGINT:
+            signal_name = 'SIGINT'
+        elif sig == signal.SIGTERM:
+            signal_mame = 'SIGINT'
+        elif sig == signal.SIGQUIT:
+            signal_mame = 'SIGQUIT'
+        self.suicide(signal_mame)
 
     def rpc_call(self, to='broadcast', method=None, args=None, kwargs=None):
         """ 
@@ -830,6 +845,7 @@ class Link:
             self.suicide('Exception during the execution of "setup"', exception=True)
 
         self._launch_threads()
+        self._setup_signal_handlers()
         self.logger.log(f'link {self._uid} is running')
 
     def _setup_kafka_producers(self):
