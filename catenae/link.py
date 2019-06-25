@@ -279,7 +279,7 @@ class Link:
                 result = self._jsonrpc_call(method, kwargs)
             except JsonRPC.MethodNotFoundError:
                 error_code = JsonRPC.METHOD_NOT_FOUND
-            except Exception:
+            except JsonRPC.InternalError:
                 error_code = JsonRPC.INTERNAL_ERROR
 
             if not is_notification:
@@ -297,6 +297,7 @@ class Link:
             return getattr(self, method)(**kwargs)
         except Exception:
             self.logger.log(level='exception')
+            raise JsonRPC.InternalError
         finally:
             self._rpc_lock.release()
 
