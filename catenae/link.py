@@ -34,9 +34,11 @@ from pickle5 import pickle
 import time
 import argparse
 from uuid import uuid4
-import os
+from os import _exit, environ
 from confluent_kafka import Producer, Consumer, KafkaError
 import signal
+from urllib.request import urlopen, Request
+import json
 from . import utils
 from .electron import Electron
 from .callback import Callback
@@ -51,8 +53,9 @@ from .json_rpc import JsonRPC
 
 class Link:
 
-    NO_INPUT_TOPIC_SLEEP_SECONDS = 1
+    NO_INPUT_TOPIC_TIMEOUT = 1
     THREAD_LOOP_TIMEOUT = 3
+    JSONRPC_MONITOR_TIMEOUT = 0.2
 
     def __init__(self,
                  log_level='INFO',
@@ -79,17 +82,17 @@ class Link:
         self._rpc_lock = Lock()
 
         # Preserve the id if the container restarts
-        if 'CATENAE_DOCKER' in os.environ \
-        and bool(os.environ['CATENAE_DOCKER']):
-            self._uid = os.environ['HOSTNAME']
+        if 'CATENAE_DOCKER' in environ \
+        and bool(environ['CATENAE_DOCKER']):
+            self._uid = environ['HOSTNAME']
         else:
             self._uid = utils.keccak256(str(uuid4()))[:12]
 
         # RPC topics
-        self.rpc_instance_topic = f'catenae_rpc_{self._uid}'
-        self.rpc_group_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
-        self.rpc_broadcast_topic = 'catenae_rpc_broadcast'
-        self._rpc_topics = [self.rpc_instance_topic, self.rpc_group_topic, self.rpc_broadcast_topic]
+        self._rpc_instance_topic = f'catenae_rpc_{self._uid}'
+        self._rpc_group_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
+        self._rpc_broadcast_topic = 'catenae_rpc_broadcast'
+        self._rpc_topics = [self._rpc_instance_topic, self._rpc_group_topic, self._rpc_broadcast_topic]
 
         self._load_args()
         self._set_execution_opts(input_mode, synchronous, sequential, num_rpc_threads,
@@ -101,8 +104,10 @@ class Link:
         self._input_messages = LinkQueue()
         self._output_messages = LinkQueue()
         self._jsonrpc_conn1, self._jsonrpc_conn2 = Pipe()
-
         self._changed_input_topics = False
+        
+        self._catenae_store = {'by_uid': dict(),
+                               'by_group': dict()}
 
     def _set_connectors_properties(self, aerospike_endpoint, mongodb_endpoint):
         self._set_aerospike_properties(aerospike_endpoint)
@@ -244,30 +249,11 @@ class Link:
             signal_mame = 'SIGQUIT'
         self.suicide(f'({signal_mame})')
 
-    def rpc_call(self, to='broadcast', method=None, args=None, kwargs=None):
-        """ 
-        Send a Kafka message which will be interpreted as a RPC call by the receiver module.
-        """
-        if not method:
-            raise ValueError
-        topic = f'catenae_rpc_{to.lower()}'
-        electron = Electron(value={
-            'method': method,
-            'context': {
-                'group': self._consumer_group,
-                'uid': self._uid
-            },
-            'args': args,
-            'kwargs': kwargs
-        },
-                            topic=topic)
-        self.send(electron, synchronous=True)
-
     def _rpc_request_monitor(self):
         while not self._rpc_request_monitor_thread.will_stop:
             new_data = self._jsonrpc_conn1.poll()
             if not new_data:
-                time.sleep(Link.THREAD_LOOP_TIMEOUT)
+                time.sleep(Link.JSONRPC_MONITOR_TIMEOUT)
                 continue
 
             is_notification, request = self._jsonrpc_conn1.recv()
@@ -286,6 +272,10 @@ class Link:
                 self._jsonrpc_conn1.send((error_code, result))
 
     def _jsonrpc_call(self, method, kwargs=None):
+        # Avoid remote execution of private methods
+        if method[0] == '_':
+            raise JsonRPC.MethodNotFoundError
+
         if not hasattr(self, method):
             raise JsonRPC.MethodNotFoundError
 
@@ -301,6 +291,66 @@ class Link:
         finally:
             self._rpc_lock.release()
 
+    def _is_instance_available(self, host, port, scheme):
+        # Avoid self invocation
+        if host == environ['JSONRPC_HOST'] and \
+           port == environ['JSONRPC_PORT']:
+           return True
+
+        url = f'{scheme}://{host}:{port}'
+
+        request = {'jsonrpc': '2.0',
+                   'method': 'available',
+                   'id': 0}
+        data = bytes(json.dumps(request), 'utf-8')
+        try:
+            urlopen(Request(url=url, data=data))
+            return True
+        except Exception:
+            self.logger.log(level='exception')
+            return False
+
+    def get_catenae_store(self):
+        return self._catenae_store
+
+    def available(self):
+        return True
+
+    def update_catenae_store(self, context, host=None, port=None, scheme=None):
+        instance_info =  dict(host=host,
+                              port=port,
+                              scheme=scheme,
+                              uid=context['uid'],
+                              group=context['group'])
+
+        if not self._is_instance_available(host, port, scheme):
+            return
+
+        self._catenae_store['by_uid'][context['uid']] = instance_info
+
+        if not context['group'] in self._catenae_store['by_group']:
+            self._catenae_store['by_group'][context['group']] = dict()
+        self._catenae_store['by_group'][context['group']][context['uid']] = instance_info
+
+    def rpc_call(self, to='broadcast', method=None, args=None, kwargs=None):
+        """ 
+        Send a Kafka message which will be interpreted as an RPC call by the receiver module.
+        """
+        if not method:
+            raise ValueError
+        topic = f'catenae_rpc_{to.lower()}'
+        electron = Electron(value={
+            'method': method,
+            'context': {
+                'group': self._consumer_group,
+                'uid': self._uid
+            },
+            'args': args,
+            'kwargs': kwargs
+        },
+                            topic=topic)
+        self.send(electron, synchronous=True)
+    
     def _kafka_rpc_call(self, electron, commit_kafka_message_callback):
         self._rpc_lock.acquire()
 
@@ -310,13 +360,17 @@ class Link:
 
         try:
             context = electron.value['context']
+            context.update({'topic': electron.previous_topic})
+
             self.logger.log(
                 f"RPC invocation from {electron.value['context']['uid']} ({electron.value['context']['group']})",
                 level='debug')
+
             if electron.value['kwargs']:
                 kwargs = electron.value['kwargs']
-                kwargs.update({'context': electron.value['kwargs']})
+                kwargs.update({'context': context})
                 getattr(self, electron.value['method'])(**kwargs)
+
             else:
                 args = electron.value['args']
                 if not args:
@@ -328,7 +382,8 @@ class Link:
                 getattr(self, electron.value['method'])(*args)
 
         except Exception:
-            self.logger.log('error when invoking a RPC method', level='exception')
+            self.logger.log('error when invoking an RPC method', level='exception')
+
         finally:
             if self._synchronous:
                 commit_kafka_message_callback.execute()
@@ -670,7 +725,7 @@ class Link:
         while not self._consumer_main_thread.will_stop:
             while not self._input_topics:
                 self.logger.log('No input topics, waiting...', level='debug')
-                time.sleep(Link.NO_INPUT_TOPIC_SLEEP_SECONDS)
+                time.sleep(Link.NO_INPUT_TOPIC_TIMEOUT)
 
             self._set_input_topic_assignments()
             current_input_topic_assignments = dict(self._input_topic_assignments)
@@ -871,6 +926,7 @@ class Link:
 
         if self._kafka_endpoint:
             self._launch_threads()
+            self._report_existence()
 
         self._setup_signal_handlers()
         self.logger.log(f'link {self._uid} is running')
@@ -890,7 +946,7 @@ class Link:
                 self._join_if_not_current_thread(thread, f'{i} _transform_rpc_executor')
 
         self.logger.log(f'link {self.uid} stopped')
-        os._exit(0)
+        _exit(0)
 
     def _setup_kafka_producers(self):
         sync_producer_properties = dict(self._kafka_producer_synchronous_properties)
@@ -940,6 +996,12 @@ class Link:
         self._consumer_main_thread = Thread(target=self._thread_target,
                                             kwargs={'target': self._kafka_consumer_main})
         self._consumer_main_thread.start()
+
+    def _report_existence(self):
+        kwargs = {'host': environ['JSONRPC_HOST'],
+                  'port': environ['JSONRPC_PORT'],
+                  'scheme': environ['JSONRPC_SCHEME']}
+        self.rpc_call(to='broadcast', method='update_catenae_store', kwargs=kwargs)
 
     def _set_log_level(self, log_level):
         if not hasattr(self, '_log_level'):

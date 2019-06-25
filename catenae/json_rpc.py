@@ -10,6 +10,7 @@ import sys
 import logging
 from .logger import Logger
 from os import environ
+import json
 
 
 class JsonRPC:
@@ -37,6 +38,15 @@ class JsonRPC:
         -32601: 'Method not found',
         -32602: 'Invalid params',
         -32603: 'Internal error',
+    }
+
+    HTTP_CODE = {
+        None: 200,
+        PARSE_ERROR: 400,
+        INVALID_REQUEST: 400,
+        METHOD_NOT_FOUND: 404,
+        INVALID_PARAMS: 400,
+        INTERNAL_ERROR: 500
     }
 
     class ParseError(Exception):
@@ -136,7 +146,14 @@ class JsonRPC:
             error_code, result = self.pipe_connection.recv()
             response = JsonRPC.get_response(request_id, result=result, error_code=error_code)
 
-            return response, 200
+            try:
+                json.dumps(response)
+            except TypeError:
+                self.logger.log(level='exception')
+                response = JsonRPC.get_response(request_id, error_code=JsonRPC.INTERNAL_ERROR)
+
+            http_code = JsonRPC.HTTP_CODE[error_code]
+            return response, http_code
 
     class StreamToLogger:
         def __init__(self, logger, level='info'):

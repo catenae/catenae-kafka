@@ -17,9 +17,11 @@ services:
     command: source_link.py -o input1 -k kafka:9092
     working_dir: /opt/catenae/test/json-rpc
     environment:
-      JSONRPC_PORT: '9493'
+      JSONRPC_HOST: source_link
+      JSONRPC_PORT: '9393'
+      JSONRPC_SCHEME: http
     ports:
-      - 9493:9493
+      - 9393:9393
     restart: always
     depends_on:
       - kafka
@@ -29,7 +31,9 @@ services:
     command: middle_link.py -i input1 -k kafka:9092
     working_dir: /opt/catenae/test/json-rpc
     environment:
+      JSONRPC_HOST: middle_link
       JSONRPC_PORT: '9494'
+      JSONRPC_SCHEME: http
     ports:
       - 9494:9494
     restart: always
