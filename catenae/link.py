@@ -265,15 +265,30 @@ class Link:
 
     def _rpc_request_monitor(self):
         while not self._rpc_request_monitor_thread.will_stop:
-            request = self._jsonrpc_conn1.poll(timeout=Link.THREAD_LOOP_TIMEOUT)
-            if not request:
+            new_data = self._jsonrpc_conn1.poll()
+            if not new_data:
+                time.sleep(Link.THREAD_LOOP_TIMEOUT)
                 continue
 
+            is_notification, request = self._jsonrpc_conn1.recv()
             method, kwargs = request
-            result = self._jsonrpc_call(method, kwargs)
-            self._jsonrpc_conn1.send(result)
+
+            error_code = None
+            result = None
+            try:
+                result = self._jsonrpc_call(method, kwargs)
+            except JsonRPC.MethodNotFoundError:
+                error_code = JsonRPC.METHOD_NOT_FOUND
+            except Exception:
+                error_code = JsonRPC.INTERNAL_ERROR
+
+            if not is_notification:
+                self._jsonrpc_conn1.send((error_code, result))
 
     def _jsonrpc_call(self, method, kwargs=None):
+        if not hasattr(self, method):
+            raise JsonRPC.MethodNotFoundError
+
         if kwargs is None:
             kwargs = {}
 

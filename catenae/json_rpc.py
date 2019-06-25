@@ -25,6 +25,60 @@ class JsonRPC:
                              'logger': logger
                          })
 
+    PARSE_ERROR = -32700
+    INVALID_REQUEST = -32600
+    METHOD_NOT_FOUND = -32601
+    INVALID_PARAMS = -32602
+    INTERNAL_ERROR = -32603
+
+    ERROR_CODES = {
+        -32700: 'Parse error',
+        -32600: 'Invalid Request',
+        -32601: 'Method not found',
+        -32602: 'Invalid params',
+        -32603: 'Internal error',
+    }
+
+    class ParseError(Exception):
+        def __init__(self, message=None):
+            super(JsonRPC.ParseError, self).__init__(message)
+
+    class InvalidRequestError(Exception):
+        def __init__(self, message=None):
+            super(JsonRPC.InvalidRequestError, self).__init__(message)
+
+    class MethodNotFoundError(Exception):
+        def __init__(self, message=None):
+            super(JsonRPC.MethodNotFoundError, self).__init__(message)
+
+    class InvalidParamsError(Exception):
+        def __init__(self, message=None):
+            super(JsonRPC.InvalidParamsError, self).__init__(message)
+
+    class InternalError(Exception):
+        def __init__(self, message=None):
+            super(JsonRPC.InternalError, self).__init__(message)
+
+    @staticmethod
+    def get_response(id, result=None, error_code=None):
+        response = {'jsonrpc': '2.0'}
+
+        if error_code is not None:
+            if error_code in JsonRPC.ERROR_CODES:
+                message = JsonRPC.ERROR_CODES[error_code]
+            elif error_code >= -32099 and error_code <= -32000:
+                message = 'Server error'
+            else:
+                raise ValueError
+            response.update({'error': {'code': error_code, 'message': message}})
+
+        elif result is not None:
+            response.update({'result': result})
+
+        response.update({'id': id})
+
+        return response
+
     class Endpoint(Resource):
         def __init__(self, pipe_connection, logger):
             self.pipe_connection = pipe_connection
@@ -34,37 +88,54 @@ class JsonRPC:
             if 'jsonrpc' not in rpc_request:
                 raise AttributeError
             if rpc_request['jsonrpc'] != '2.0':
-                raise ValueError
+                raise JsonRPC.InvalidRequestError
 
             if 'method' not in rpc_request:
-                raise AttributeError
+                raise JsonRPC.InvalidRequestError
             if type(rpc_request['method']) is not str:
-                raise ValueError
+                raise JsonRPC.InvalidRequestError
 
             if 'params' in rpc_request:
                 if type(rpc_request['params']) is not dict:
-                    raise ValueError
-
-            if 'id' not in rpc_request:
-                raise AttributeError
+                    raise JsonRPC.InvalidParamsError
 
         def post(self):
-            rpc_request = request.get_json(force=True)
+            try:
+                rpc_request = request.get_json(force=True)
+            except Exception:
+                response = JsonRPC.get_response(None, error_code=JsonRPC.INVALID_REQUEST)
+                return response, 400
+
+            if 'id' in rpc_request:
+                request_id = rpc_request['id']
+                is_notification = False
+            else:
+                request_id = None
+                is_notification = True
 
             try:
                 self.check_valid_jsonrpc_request(rpc_request)
-            except (AttributeError, ValueError):
-                return Response(status=400)
+            except JsonRPC.InvalidRequestError:
+                response = JsonRPC.get_response(request_id, error_code=JsonRPC.INVALID_REQUEST)
+                return response, 400
+            except JsonRPC.InvalidParamsError:
+                response = JsonRPC.get_response(request_id, error_code=JsonRPC.INVALID_PARAMS)
+                return response, 400
 
             if 'params' in rpc_request:
                 queue_request = (rpc_request['method'], rpc_request['params'])
             else:
                 queue_request = (rpc_request['method'], None)
 
-            self.pipe_connection.send(queue_request)
-            result = self.pipe_connection.recv()
+            if is_notification:
+                self.pipe_connection.send((True, queue_request))
+                return Response(status=200)
+            else:
+                self.pipe_connection.send((False, queue_request))
 
-            response = {'jsonrpc': '2.0', 'result': result, 'id': rpc_request['id']}
+            error_code, result = self.pipe_connection.recv()
+            response = JsonRPC.get_response(request_id, result=result, error_code=error_code)
+
             return response, 200
 
     class StreamToLogger:
@@ -73,7 +144,8 @@ class JsonRPC:
             self.level = level
 
         def write(self, text):
-            if text.strip():
+            text = text.strip()
+            if text:
                 self.logger.log(text, level=self.level)
 
     def run(self):
