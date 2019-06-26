@@ -55,7 +55,7 @@ class Link:
 
     NO_INPUT_TOPIC_TIMEOUT = 1
     THREAD_LOOP_TIMEOUT = 3
-    JSONRPC_MONITOR_TIMEOUT = 0.2
+    JSONRPC_MONITOR_TIMEOUT = 0.1
 
     def __init__(self,
                  log_level='INFO',
@@ -256,9 +256,9 @@ class Link:
                 time.sleep(Link.JSONRPC_MONITOR_TIMEOUT)
                 continue
 
+            self._rpc_lock.acquire()
             is_notification, request = self._jsonrpc_conn1.recv()
             method, kwargs = request
-
             error_code = None
             result = None
             try:
@@ -267,6 +267,8 @@ class Link:
                 error_code = JsonRPC.METHOD_NOT_FOUND
             except JsonRPC.InternalError:
                 error_code = JsonRPC.INTERNAL_ERROR
+            finally:
+                self._rpc_lock.release()
 
             if not is_notification:
                 self._jsonrpc_conn1.send((error_code, result))
@@ -282,14 +284,11 @@ class Link:
         if kwargs is None:
             kwargs = {}
 
-        self._rpc_lock.acquire()
         try:
             return getattr(self, method)(**kwargs)
         except Exception:
             self.logger.log(level='exception')
             raise JsonRPC.InternalError
-        finally:
-            self._rpc_lock.release()
 
     def _is_instance_available(self, host, port, scheme):
         # Avoid self invocation
@@ -356,6 +355,7 @@ class Link:
 
         if not 'method' in electron.value:
             self.logger.log(f'invalid RPC invocation: {electron.value}', level='error')
+            self._rpc_lock.release()
             return
 
         try:

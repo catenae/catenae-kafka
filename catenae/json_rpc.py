@@ -167,6 +167,8 @@ class JsonRPC:
 
     def run(self):
         sys.stderr = JsonRPC.StreamToLogger(self.logger)
+        # In order to support multiple workers, the interprocess communication
+        # has to be reimplemented with queues instead of pipes
         options = {'bind': f"0.0.0.0:{environ['JSONRPC_PORT']}", 'workers': 1, 'timeout': 60}
         Server(self.app, options).run()
 
