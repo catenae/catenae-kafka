@@ -73,7 +73,9 @@ class JsonRPC:
     def get_response(id, result=None, error_code=None):
         response = {'jsonrpc': '2.0'}
 
-        if error_code is not None:
+        if error_code is None:
+            response.update({'result': result})
+        else:
             if error_code in JsonRPC.ERROR_CODES:
                 message = JsonRPC.ERROR_CODES[error_code]
             elif error_code >= -32099 and error_code <= -32000:
@@ -82,11 +84,7 @@ class JsonRPC:
                 raise ValueError
             response.update({'error': {'code': error_code, 'message': message}})
 
-        elif result is not None:
-            response.update({'result': result})
-
         response.update({'id': id})
-
         return response
 
     class Endpoint(Resource):

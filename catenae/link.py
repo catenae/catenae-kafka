@@ -51,6 +51,14 @@ from .connectors.mongodb import MongodbConnector
 from .json_rpc import JsonRPC
 
 
+_rpc_enabled_methods = set()
+def rpc(method):
+    """RPC decorator"""
+    # global _rpc_enabled_methods
+    if method.__name__ not in _rpc_enabled_methods:
+        _rpc_enabled_methods.add(method.__name__)
+    return method
+
 class Link:
 
     NO_INPUT_TOPIC_TIMEOUT = 1
@@ -107,8 +115,8 @@ class Link:
         self._changed_input_topics = False
         
         self._store = {'by_uid': dict(),
-                               'by_group': dict()}
-
+                       'by_group': dict()}
+    
     def _set_connectors_properties(self, aerospike_endpoint, mongodb_endpoint):
         self._set_aerospike_properties(aerospike_endpoint)
         if hasattr(self, '_aerospike_host'):
@@ -273,16 +281,15 @@ class Link:
             if not is_notification:
                 self._jsonrpc_conn1.send((error_code, result))
 
+
+    def _rpc_enabled_method(self, method):
+        if method in _rpc_enabled_methods:
+            return True
+        return False
+
     def _jsonrpc_call(self, method, kwargs=None):
-        # Avoid private methods
-        if method[0] == '_':
-            raise JsonRPC.MethodNotFoundError
-
-        if not hasattr(self, method):
-            raise JsonRPC.MethodNotFoundError
-
-        # Avoid attributes
-        if not callable(getattr(self, method)):
+        if not self._rpc_enabled_method(method):
+            self.logger.log(f'method {method} cannot be called', level='debug')
             raise JsonRPC.MethodNotFoundError
 
         if kwargs is None:
@@ -341,12 +348,15 @@ class Link:
     def store(self):
         return dict(self._store)
 
+    @rpc
     def get_store(self):
         return self.store
 
+    @rpc
     def available(self):
         return True
 
+    @rpc
     def add_to_store(self, context, host=None, port=None, scheme=None):
         instance_info =  dict(host=host,
                               port=port,
@@ -383,6 +393,12 @@ class Link:
         self.send(electron, synchronous=True)
     
     def _kafka_rpc_call(self, electron, commit_kafka_message_callback):
+        method = electron.value['method']
+
+        if not self._rpc_enabled_method(method):
+            self.logger.log(f'method {method} cannot be called', level='debug')
+            return
+
         self._rpc_lock.acquire()
 
         if not 'method' in electron.value:
@@ -401,7 +417,7 @@ class Link:
             if electron.value['kwargs']:
                 kwargs = electron.value['kwargs']
                 kwargs.update({'context': context})
-                getattr(self, electron.value['method'])(**kwargs)
+                getattr(self, method)(**kwargs)
 
             else:
                 args = electron.value['args']
@@ -411,10 +427,10 @@ class Link:
                     args = [context, args]
                 else:
                     args = [context] + args
-                getattr(self, electron.value['method'])(*args)
+                getattr(self, method)(*args)
 
         except Exception:
-            self.logger.log('error when invoking an RPC method', level='exception')
+            self.logger.log('error when invoking {method} remotely', level='exception')
 
         finally:
             if self._synchronous:
