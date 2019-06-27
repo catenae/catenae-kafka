@@ -6,6 +6,7 @@ import json
 import time
 import hashlib
 from collections import OrderedDict
+from uuid import uuid4
 
 
 def get_timestamp():
@@ -62,3 +63,7 @@ def _sha3_512(text):
     if type(text) != str:
         raise ValueError
     return hashlib.sha3_512(text.encode('utf-8')).hexdigest()
+
+
+def get_uid():
+    return b2bsha3_512(str(uuid4()))[:12]

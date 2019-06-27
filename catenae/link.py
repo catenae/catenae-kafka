@@ -33,11 +33,11 @@ from multiprocessing import Pipe
 from pickle5 import pickle
 import time
 import argparse
-from uuid import uuid4
 from os import _exit, environ
 from confluent_kafka import Producer, Consumer, KafkaError
 import signal
 from urllib.request import urlopen, Request
+from urllib.error import HTTPError
 import json
 from . import utils
 from .electron import Electron
@@ -86,7 +86,7 @@ class Link:
         and bool(environ['CATENAE_DOCKER']):
             self._uid = environ['HOSTNAME']
         else:
-            self._uid = utils.keccak256(str(uuid4()))[:12]
+            self._uid = utils.get_uid()
 
         # RPC topics
         self._rpc_instance_topic = f'catenae_rpc_{self._uid}'
@@ -106,7 +106,7 @@ class Link:
         self._jsonrpc_conn1, self._jsonrpc_conn2 = Pipe()
         self._changed_input_topics = False
         
-        self._catenae_store = {'by_uid': dict(),
+        self._store = {'by_uid': dict(),
                                'by_group': dict()}
 
     def _set_connectors_properties(self, aerospike_endpoint, mongodb_endpoint):
@@ -185,11 +185,11 @@ class Link:
 
     @property
     def input_topics(self):
-        return self._input_topics
+        return list(self._input_topics)
 
     @property
     def output_topics(self):
-        return self._output_topics
+        return list(self._output_topics)
 
     @property
     def consumer_group(self):
@@ -197,7 +197,7 @@ class Link:
 
     @property
     def args(self):
-        return self._args
+        return list(self._args)
 
     @property
     def uid(self):
@@ -274,11 +274,15 @@ class Link:
                 self._jsonrpc_conn1.send((error_code, result))
 
     def _jsonrpc_call(self, method, kwargs=None):
-        # Avoid remote execution of private methods
+        # Avoid private methods
         if method[0] == '_':
             raise JsonRPC.MethodNotFoundError
 
         if not hasattr(self, method):
+            raise JsonRPC.MethodNotFoundError
+
+        # Avoid attributes
+        if not callable(getattr(self, method)):
             raise JsonRPC.MethodNotFoundError
 
         if kwargs is None:
@@ -290,11 +294,34 @@ class Link:
             self.logger.log(level='exception')
             raise JsonRPC.InternalError
 
+    def jsonrpc_call(self, uid, method, kwargs=None, request_id=None):
+        instance_info = self._store['by_uid'][uid]
+        
+        url = f"{instance_info['scheme']}://{instance_info['host']}:{instance_info['port']}"
+       
+        request = {'jsonrpc': '2.0',
+                   'method': method}
+        if kwargs is not None:
+            request.update({'params': kwargs})
+        request.update({'id': request_id})
+        data = bytes(json.dumps(request), 'utf-8')
+
+        result = None
+        try:
+            response_data = urlopen(Request(url=url, data=data)).read().decode('utf-8')
+            result = json.loads(response_data)['result']
+        except HTTPError as error:
+            self.logger.log(f'HTTP error {error.code}', level='error')
+            response_data = error.read().decode('utf-8')
+            result = json.loads(response_data)['result']
+
+        return result
+
     def _is_instance_available(self, host, port, scheme):
-        # Avoid self invocation
+        # Avoid itself
         if host == environ['JSONRPC_HOST'] and \
            port == environ['JSONRPC_PORT']:
-           return True
+           return False
 
         url = f'{scheme}://{host}:{port}'
 
@@ -302,20 +329,25 @@ class Link:
                    'method': 'available',
                    'id': 0}
         data = bytes(json.dumps(request), 'utf-8')
+
         try:
-            urlopen(Request(url=url, data=data))
-            return True
-        except Exception:
-            self.logger.log(level='exception')
+            response_data = urlopen(Request(url=url, data=data)).read().decode('utf-8')
+            result = json.loads(response_data)['result']
+            return result
+        except HTTPError as error:
             return False
 
-    def get_catenae_store(self):
-        return self._catenae_store
+    @property
+    def store(self):
+        return dict(self._store)
+
+    def get_store(self):
+        return self.store
 
     def available(self):
         return True
 
-    def update_catenae_store(self, context, host=None, port=None, scheme=None):
+    def add_to_store(self, context, host=None, port=None, scheme=None):
         instance_info =  dict(host=host,
                               port=port,
                               scheme=scheme,
@@ -325,11 +357,11 @@ class Link:
         if not self._is_instance_available(host, port, scheme):
             return
 
-        self._catenae_store['by_uid'][context['uid']] = instance_info
+        self._store['by_uid'][context['uid']] = instance_info
 
-        if not context['group'] in self._catenae_store['by_group']:
-            self._catenae_store['by_group'][context['group']] = dict()
-        self._catenae_store['by_group'][context['group']][context['uid']] = instance_info
+        if not context['group'] in self._store['by_group']:
+            self._store['by_group'][context['group']] = dict()
+        self._store['by_group'][context['group']][context['uid']] = instance_info        
 
     def rpc_call(self, to='broadcast', method=None, args=None, kwargs=None):
         """ 
@@ -1001,7 +1033,7 @@ class Link:
         kwargs = {'host': environ['JSONRPC_HOST'],
                   'port': environ['JSONRPC_PORT'],
                   'scheme': environ['JSONRPC_SCHEME']}
-        self.rpc_call(to='broadcast', method='update_catenae_store', kwargs=kwargs)
+        self.rpc_call(to='broadcast', method='add_to_store', kwargs=kwargs)
 
     def _set_log_level(self, log_level):
         if not hasattr(self, '_log_level'):
