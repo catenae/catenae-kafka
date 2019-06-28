@@ -38,6 +38,7 @@ from confluent_kafka import Producer, Consumer, KafkaError
 import signal
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
+from socket import timeout
 import json
 from . import utils
 from .electron import Electron
@@ -54,7 +55,6 @@ from .json_rpc import JsonRPC
 _rpc_enabled_methods = set()
 def rpc(method):
     """RPC decorator"""
-    # global _rpc_enabled_methods
     if method.__name__ not in _rpc_enabled_methods:
         _rpc_enabled_methods.add(method.__name__)
     return method
@@ -64,6 +64,7 @@ class Link:
     NO_INPUT_TOPIC_TIMEOUT = 1
     THREAD_LOOP_TIMEOUT = 3
     JSONRPC_MONITOR_TIMEOUT = 0.1
+    JSONRPC_CALL_TIMEOUT = 5
 
     def __init__(self,
                  log_level='INFO',
@@ -301,6 +302,7 @@ class Link:
             self.logger.log(level='exception')
             raise JsonRPC.InternalError
 
+    # Throws socket.timeout
     def jsonrpc_call(self, uid, method, kwargs=None, request_id=None):
         instance_info = self._store['by_uid'][uid]
         
@@ -315,7 +317,8 @@ class Link:
 
         result = None
         try:
-            response_data = urlopen(Request(url=url, data=data)).read().decode('utf-8')
+            response_data = urlopen(Request(url=url, data=data),
+                                            timeout=Link.JSONRPC_CALL_TIMEOUT).read().decode('utf-8')
             result = json.loads(response_data)['result']
         except HTTPError as error:
             self.logger.log(f'HTTP error {error.code}', level='error')
@@ -324,25 +327,27 @@ class Link:
 
         return result
 
-    def _is_instance_available(self, host, port, scheme):
-        # Avoid itself
+    def _it_is_me(self, host, port):
         if host == environ['JSONRPC_HOST'] and \
            port == environ['JSONRPC_PORT']:
-           return False
+           return True
+        return False
 
-        url = f'{scheme}://{host}:{port}'
-
+    def _is_instance_available(self, host, port, scheme):
         request = {'jsonrpc': '2.0',
                    'method': 'available',
                    'id': 0}
         data = bytes(json.dumps(request), 'utf-8')
 
+        url = f'{scheme}://{host}:{port}'
         try:
-            response_data = urlopen(Request(url=url, data=data)).read().decode('utf-8')
-            result = json.loads(response_data)['result']
-            return result
-        except HTTPError as error:
+            response_data = urlopen(Request(url=url, data=data),
+                                            timeout=Link.JSONRPC_CALL_TIMEOUT).read().decode('utf-8')
+        except Exception:
             return False
+        
+        result = json.loads(response_data)['result']
+        return result
 
     @property
     def store(self):
@@ -358,14 +363,17 @@ class Link:
 
     @rpc
     def add_to_store(self, context, host=None, port=None, scheme=None):
+        if self._it_is_me(host, port):
+            return
+
+        if not self._is_instance_available(host, port, scheme):
+            return
+
         instance_info =  dict(host=host,
                               port=port,
                               scheme=scheme,
                               uid=context['uid'],
                               group=context['group'])
-
-        if not self._is_instance_available(host, port, scheme):
-            return
 
         self._store['by_uid'][context['uid']] = instance_info
 
@@ -430,7 +438,7 @@ class Link:
                 getattr(self, method)(*args)
 
         except Exception:
-            self.logger.log('error when invoking {method} remotely', level='exception')
+            self.logger.log(f'error when invoking {method} remotely', level='exception')
 
         finally:
             if self._synchronous:
