@@ -6,3 +6,6 @@ aerospike
 pymongo
 orderedset
 pickle5
+flask_restful
+flask_cors
+gunicorn
