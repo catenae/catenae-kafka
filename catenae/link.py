@@ -33,7 +33,7 @@ from multiprocessing import Pipe
 from pickle5 import pickle
 import time
 import argparse
-from os import _exit, environ
+from os import environ
 from confluent_kafka import Producer, Consumer, KafkaError
 import signal
 from urllib.request import urlopen, Request
@@ -478,6 +478,7 @@ class Link:
             thread.stop()
 
         self.logger.log('stopping threads...')
+        raise SystemExit
 
     def _join_if_not_current_thread(self, thread, name):
         if thread is not current_thread():
@@ -1006,12 +1007,10 @@ class Link:
 
             for i, thread in enumerate(self._transform_rpc_executor.threads):
                 self._join_if_not_current_thread(thread, f'{i} _transform_rpc_executor')
-                thread.join()
             for i, thread in enumerate(self._transform_main_executor.threads):
                 self._join_if_not_current_thread(thread, f'{i} _transform_rpc_executor')
 
         self.logger.log(f'link {self.uid} stopped')
-        _exit(0)
 
     def _setup_kafka_producers(self):
         sync_producer_properties = dict(self._kafka_producer_synchronous_properties)
