@@ -9,3 +9,4 @@ pickle5
 flask_restful
 flask_cors
 gunicorn
+eventlet

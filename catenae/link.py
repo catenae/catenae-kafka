@@ -40,6 +40,7 @@ from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 from socket import timeout
 import json
+import eventlet
 from . import utils
 from .electron import Electron
 from .callback import Callback
@@ -333,7 +334,16 @@ class Link:
            return True
         return False
 
-    def _is_instance_available(self, host, port, scheme):
+    def is_uid_available(self, uid, timeout=None):
+        host = self.store['by_uid'][uid]['host']
+        port = self.store['by_uid'][uid]['port']
+        scheme = self.store['by_uid'][uid]['scheme']
+        return self._is_endpoint_available(host, port, scheme, timeout=timeout, uid=uid)
+
+    def _is_endpoint_available(self, host, port, scheme, timeout=None, uid=''):
+        if timeout is None:
+            timeout = Link.JSONRPC_CALL_TIMEOUT
+
         request = {'jsonrpc': '2.0',
                    'method': 'available',
                    'id': 0}
@@ -341,13 +351,12 @@ class Link:
 
         url = f'{scheme}://{host}:{port}'
         try:
-            response_data = urlopen(Request(url=url, data=data),
-                                            timeout=Link.JSONRPC_CALL_TIMEOUT).read().decode('utf-8')
+            with eventlet.Timeout(timeout):
+                response_data = urlopen(Request(url=url, data=data)).read().decode('utf-8')
         except Exception:
+            self.logger.log(' '.join(f'instance {uid} is not available ({scheme}://{host}:{port})'.split()))
             return False
-        
-        result = json.loads(response_data)['result']
-        return result
+        return True
 
     @property
     def store(self):
@@ -366,7 +375,7 @@ class Link:
         if self._it_is_me(host, port):
             return
 
-        if not self._is_instance_available(host, port, scheme):
+        if not self._is_endpoint_available(host, port, scheme):
             return
 
         instance_info =  dict(host=host,
