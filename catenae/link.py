@@ -34,7 +34,7 @@ from pickle5 import pickle
 import time
 import argparse
 from uuid import uuid4
-import os
+from os import environ
 from confluent_kafka import Producer, Consumer, KafkaError
 import signal
 from . import utils
@@ -78,9 +78,9 @@ class Link:
         self._rpc_lock = Lock()
 
         # Preserve the id if the container restarts
-        if 'CATENAE_DOCKER' in os.environ \
-        and bool(os.environ['CATENAE_DOCKER']):
-            self._uid = os.environ['HOSTNAME']
+        if 'CATENAE_DOCKER' in environ \
+        and bool(environ['CATENAE_DOCKER']):
+            self._uid = environ['HOSTNAME']
         else:
             self._uid = utils.keccak256(str(uuid4()))[:12]
 
@@ -315,6 +315,9 @@ class Link:
                 thread.stop()
 
             self.logger.log('stopping threads...')
+
+        # Kill the thread that invoked the suicide method
+        raise SystemExit
 
     def _join_if_not_current_thread(self, thread, name):
         if thread is not current_thread():
@@ -819,20 +822,23 @@ class Link:
         self.logger.log(f'link {self._uid} is running')
 
         if self._kafka_endpoint:
-            self._producer_thread.join()
-            self._input_handler_thread.join()
-            self._consumer_rpc_thread.join()
-            self._generator_main_thread.join()
-            self._consumer_main_thread.join()
+            if hasattr(self, '_producer_thread'):
+                self._producer_thread.join()
+            if hasattr(self, '_input_handler_thread'):
+                self._input_handler_thread.join()
+            if hasattr(self, '_consumer_rpc_thread'):
+                self._consumer_rpc_thread.join()
+            if hasattr(self, '_generator_main_thread'):
+                self._generator_main_thread.join()
+            if hasattr(self, '_consumer_main_thread'):
+                self._consumer_main_thread.join()
 
             for i, thread in enumerate(self._transform_rpc_executor.threads):
                 self._join_if_not_current_thread(thread, f'{i} _transform_rpc_executor')
-                thread.join()
             for i, thread in enumerate(self._transform_main_executor.threads):
                 self._join_if_not_current_thread(thread, f'{i} _transform_rpc_executor')
 
         self.logger.log(f'link {self.uid} stopped')
-        os._exit(0)
 
     def _setup_kafka_producers(self):
         sync_producer_properties = dict(self._kafka_producer_synchronous_properties)
