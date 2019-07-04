@@ -8,6 +8,7 @@ import logging
 class SourceLink(Link):
     def generator(self):
         message = 'hi'
+
         self.send(message)
         self.logger.log(f'Message "{message}" sent')
 
