@@ -263,6 +263,7 @@ class Link:
 
         if not 'method' in electron.value:
             self.logger.log(f'invalid RPC invocation: {electron.value}', level='error')
+            self._rpc_lock.release()
             return
 
         try:
@@ -442,11 +443,13 @@ class Link:
         else:
             electrons = transform_result
 
-        # Even if no electrons are returned in the transform method,
-        # continue so the input electron can be commited by the Kafka
-        # consumer (synchronous mode, kafka_output).
-        if electrons is None:
-            electrons = []
+        if electrons is None and self._synchronous:
+            if transform_callback:
+                transform_callback.execute()
+
+            commit_kafka_message_callback.execute()
+            self.logger.log('message committed', level='debug')
+            return
 
         # Already a list
         if type(electrons) == list:
@@ -465,28 +468,18 @@ class Link:
             else:
                 electrons = [Electron(value=electrons)]
 
-        # If the transform method returns anything and the output
-        # is set to the Kafka producer, delegate the remaining
-        # work to the Kafka producer
+        # The callback will be executed only for the last electron if there are more than one
+        electrons[-1].callbacks = []
+        if commit_kafka_message_callback:
+            electrons[-1].callbacks.append(commit_kafka_message_callback)
+        if transform_callback:
+            electrons[-1].callbacks.append(transform_callback)
 
-        if electrons:
-            # The callback will be executed only for the last
-            # electron if there are more than one
-            electrons[-1].callbacks = []
-            if commit_kafka_message_callback:
-                electrons[-1].callbacks.append(commit_kafka_message_callback)
-            if transform_callback:
-                electrons[-1].callbacks.append(transform_callback)
-
-            for electron in electrons:
+        for electron in electrons:
+            if self._synchronous:
+                self._produce(electron)
+            else:
                 self._output_messages.put(electron)
-            return
-
-        # If the synchronous mode is enabled, the input message
-        # will be commited if the transform method returns None
-        # or if the output is not managed by the Kafka producer
-        if self._synchronous and commit_kafka_message_callback:
-            commit_kafka_message_callback.execute()
 
     def _input_handler(self):
         while not current_thread().will_stop:
@@ -761,14 +754,19 @@ class Link:
                 self.send(item, topic=topic)
 
         if callback is not None:
+            if callbacks is not None:
+                raise ValueError
             callbacks = [callback]
+            
         if callbacks is not None:
+            if callback is not None:
+                raise ValueError
             electron.callbacks = callbacks
 
         if synchronous is None:
             synchronous = self._synchronous
         if synchronous:
-            self._produce(electron, synchronous=True)
+            self._produce(electron)
         else:
             self._output_messages.put(electron)
 
