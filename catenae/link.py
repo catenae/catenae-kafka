@@ -50,8 +50,7 @@ from .connectors.mongodb import MongodbConnector
 
 class Link:
 
-    NO_INPUT_TOPICS_SLEEP_SECONDS = 1
-    THREAD_LOOP_TIMEOUT = 3
+    TIMEOUT = 0.5
 
     def __init__(self,
                  log_level='INFO',
@@ -234,10 +233,10 @@ class Link:
         if sig == signal.SIGINT:
             signal_name = 'SIGINT'
         elif sig == signal.SIGTERM:
-            signal_mame = 'SIGINT'
+            signal_name = 'SIGINT'
         elif sig == signal.SIGQUIT:
-            signal_mame = 'SIGQUIT'
-        self.suicide(f'({signal_mame})')
+            signal_name = 'SIGQUIT'
+        self.suicide(f'({signal_name})')
 
     def rpc_call(self, to='broadcast', method=None, args=None, kwargs=None):
         """ 
@@ -258,7 +257,7 @@ class Link:
                             topic=topic)
         self.send(electron, synchronous=True)
 
-    def _kafka_rpc_call(self, electron, commit_kafka_message_callback):
+    def _kafka_rpc_call(self, electron, commit_callback):
         self._rpc_lock.acquire()
 
         if not 'method' in electron.value:
@@ -279,7 +278,7 @@ class Link:
                 args = electron.value['args']
                 if not args:
                     args = [context]
-                elif type(args) != list:
+                elif not isinstance(args, list):
                     args = [context, args]
                 else:
                     args = [context] + args
@@ -289,7 +288,7 @@ class Link:
             self.logger.log('error when invoking a RPC method', level='exception')
         finally:
             if self._synchronous:
-                commit_kafka_message_callback.execute()
+                commit_callback.execute()
             self._rpc_lock.release()
 
     def suicide(self, message=None, exception=False):
@@ -302,6 +301,9 @@ class Link:
             self.logger.log(message, level='exception')
         else:
             self.logger.log(message, level='warn')
+
+        while not self._launched:
+            time.sleep(Link.TIMEOUT)
 
         if self._kafka_endpoint:
             self.logger.log('stopping threads...')
@@ -351,7 +353,7 @@ class Link:
     def _kafka_producer(self):
         while not current_thread().will_stop:
             try:
-                electron = self._output_messages.get(timeout=Link.THREAD_LOOP_TIMEOUT, block=False)
+                electron = self._output_messages.get(timeout=Link.TIMEOUT, block=False)
             except LinkQueue.EmptyError:
                 continue
 
@@ -360,13 +362,13 @@ class Link:
     def _produce(self, electron, synchronous=None):
         # All the queue items of the _output_messages must be individual
         # instances of Electron
-        if type(electron) != Electron:
+        if not isinstance(electron, Electron):
             raise ValueError
 
         # The key is enconded for its use as partition key
         partition_key = None
         if electron.key:
-            if type(electron.key) == str:
+            if isinstance(electron.key, str):
                 partition_key = electron.key.encode('utf-8')
             else:
                 partition_key = pickle.dumps(electron.key, protocol=pickle.HIGHEST_PROTOCOL)
@@ -382,7 +384,7 @@ class Link:
             electron.topic = self._output_topics[0]
 
         # Electrons are serialized
-        if electron.unpack_if_string and type(electron.value) == str:
+        if electron.unpack_if_string and isinstance(electron.value, str):
             serialized_electron = electron.value
         else:
             serialized_electron = pickle.dumps(electron.get_sendable(), protocol=pickle.HIGHEST_PROTOCOL)
@@ -419,7 +421,7 @@ class Link:
             for callback in electron.callbacks:
                 callback.execute()
 
-    def _transform(self, electron, commit_kafka_message_callback, transform_callback):
+    def _transform(self, electron, commit_callback, transform_callback):
         self._rpc_lock.acquire()
         try:
             transform_result = self.transform(electron)
@@ -429,33 +431,30 @@ class Link:
         finally:
             self._rpc_lock.release()
 
-        if type(transform_result) == tuple:
+        if not isinstance(transform_result, tuple):
+            electrons = transform_result
+        else:
             electrons = transform_result[0]
-            # Function to call if asynchronous mode is enabled after
-            # a message is correctly commited to a Kafka broker
             if len(transform_result) > 1:
                 transform_callback.target = transform_result[1]
                 if len(transform_result) > 2:
-                    if type(transform_result[2]) == list:
+                    if isinstance(transform_result[2], list):
                         transform_callback.args = transform_result[2]
-                    elif type(transform_result[2]) == dict:
+                    elif isinstance(transform_result[2], dict):
                         transform_callback.kwargs = transform_result[2]
-        else:
-            electrons = transform_result
 
         if electrons is None and self._synchronous:
             if transform_callback:
                 transform_callback.execute()
 
-            commit_kafka_message_callback.execute()
-            self.logger.log('message committed', level='debug')
+            commit_callback.execute()
             return
 
         # Already a list
-        if type(electrons) == list:
+        if isinstance(electrons, list):
             real_electrons = []
             for electron in electrons:
-                if type(electron) == Electron:
+                if isinstance(electron, Electron):
                     real_electrons.append(electron)
                 else:
                     real_electrons.append(Electron(value=electron, unpack_if_string=True))
@@ -463,15 +462,15 @@ class Link:
 
         # If there is only one item, convert it to a list
         else:
-            if type(electrons) == Electron:
+            if isinstance(electrons, Electron):
                 electrons = [electrons]
             else:
                 electrons = [Electron(value=electrons)]
 
         # The callback will be executed only for the last electron if there are more than one
         electrons[-1].callbacks = []
-        if commit_kafka_message_callback:
-            electrons[-1].callbacks.append(commit_kafka_message_callback)
+        if commit_callback:
+            electrons[-1].callbacks.append(commit_callback)
         if transform_callback:
             electrons[-1].callbacks.append(transform_callback)
 
@@ -486,10 +485,10 @@ class Link:
             self.logger.log('waiting for a new electron to transform...', level='debug')
 
             transform_callback = Callback()
-            commit_kafka_message_callback = Callback(type_=Callback.COMMIT_KAFKA_MESSAGE)
+            commit_callback = Callback(type_=Callback.COMMIT_KAFKA_MESSAGE)
 
             try:
-                queue_item = self._input_messages.get(timeout=Link.THREAD_LOOP_TIMEOUT, block=False)
+                queue_item = self._input_messages.get(timeout=Link.TIMEOUT, block=False)
             except LinkQueue.EmptyError:
                 continue
 
@@ -500,21 +499,21 @@ class Link:
             # Kafka message value would be an Electron instance
 
             # Tuple
-            if type(queue_item) == tuple:
-                commit_kafka_message_callback.target = queue_item[1]
+            if isinstance(queue_item, tuple):
+                commit_callback.target = queue_item[1]
                 if len(queue_item) > 2:
-                    if type(queue_item[2]) == list:
-                        commit_kafka_message_callback.args = queue_item[2]
-                    elif type(queue_item[2]) == dict:
-                        commit_kafka_message_callback.kwargs = queue_item[2]
+                    if isinstance(queue_item[2], list):
+                        commit_callback.args = queue_item[2]
+                    elif isinstance(queue_item[2], dict):
+                        commit_callback.kwargs = queue_item[2]
                 queue_item = queue_item[0]
 
             # Electron instance
-            if type(queue_item.value()) == Electron:
+            if isinstance(queue_item.value(), Electron):
                 electron = queue_item.value()
 
             # String or custom object
-            elif type(queue_item.value()) == bytes:
+            elif isinstance(queue_item.value(), bytes):
                 try:
                     # String
                     electron = Electron(queue_item.key(), queue_item.value().decode('utf-8'))
@@ -522,7 +521,7 @@ class Link:
                     # Other object
                     try:
                         electron = pickle.loads(queue_item.value())
-                        if type(electron) != Electron:
+                        if isinstance(electron, Electron):
                             electron = Electron(queue_item.key(), electron)
                     except Exception:
                         electron = Electron(queue_item.key(), queue_item.value())
@@ -538,10 +537,10 @@ class Link:
             # The destiny topic will be overwritten if desired in the
             # transform method (default, first output topic)
             if electron.previous_topic in self._rpc_topics:
-                self._transform_rpc_executor.submit(self._kafka_rpc_call, [electron, commit_kafka_message_callback])
+                self._transform_rpc_executor.submit(self._kafka_rpc_call, [electron, commit_callback])
             else:
                 self._transform_main_executor.submit(self._transform,
-                                                     [electron, commit_kafka_message_callback, transform_callback])
+                                                     [electron, commit_callback, transform_callback])
 
     def _break_consumer_loop(self, subscription):
         return len(subscription) > 1 and self._input_mode != 'parity'
@@ -613,7 +612,7 @@ class Link:
         while not current_thread().will_stop:
             if not self._input_topics:
                 self.logger.log('No input topics, waiting...', level='debug')
-                time.sleep(Link.NO_INPUT_TOPICS_SLEEP_SECONDS)
+                time.sleep(Link.TIMEOUT)
                 continue
 
             self._set_input_topic_assignments()
@@ -651,7 +650,7 @@ class Link:
                                 # outer loop so both loops are broken
                                 break
 
-                        message = consumer.poll(Link.THREAD_LOOP_TIMEOUT)
+                        message = consumer.poll(Link.TIMEOUT)
 
                         if not message or (not message.key() and not message.value()):
                             if not self._break_consumer_loop(subscription):
@@ -743,13 +742,13 @@ class Link:
             thread.stop()
 
     def send(self, output_content, topic=None, callback=None, callbacks=None, synchronous=None):
-        if type(output_content) == Electron:
+        if isinstance(output_content, Electron):
             if topic:
                 output_content.topic = topic
             electron = output_content.deepcopy()
-        elif type(output_content != list):
+        elif not isinstance(output_content, list):
             electron = Electron(value=output_content, topic=topic, unpack_if_string=True)
-        elif type(output_content) == list:
+        elif isinstance(output_content, list):
             for item in output_content:
                 self.send(item, topic=topic)
 
@@ -757,7 +756,7 @@ class Link:
             if callbacks is not None:
                 raise ValueError
             callbacks = [callback]
-            
+
         if callbacks is not None:
             if callback is not None:
                 raise ValueError
@@ -811,7 +810,6 @@ class Link:
     def start(self):
         if self._launched:
             return
-        self._launched = True
 
         if self._kafka_endpoint:
             self._set_kafka_common_properties()
@@ -826,6 +824,7 @@ class Link:
 
         if self._kafka_endpoint:
             self._launch_threads()
+        self._launched = True
 
         self._setup_signal_handlers()
 
