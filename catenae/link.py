@@ -214,7 +214,7 @@ class Link:
         if input_topic not in self._input_topics:
             self._input_topics.append(input_topic)
             with self._input_topics_lock:
-                if self._input_måode == 'exp':
+                if self._input_mode == 'exp':
                     self._set_input_topic_assignments()
                 self._changed_input_topics = True
             self.logger.log(f'added input {input_topic}')
