@@ -205,8 +205,9 @@ class Link:
         if synchronous is None:
             synchronous = self._synchronous
 
+        # Electrons can be sent asynchronously / synchronously individually
         if synchronous:
-            self._produce(electron)
+            self._produce(electron, synchronous=synchronous)
         else:
             self._output_messages.put(electron)
 
@@ -501,7 +502,7 @@ class Link:
                 producer.flush()
             else:
                 producer.poll(0)
-                
+
             self.logger.log('electron produced', level='debug')
 
         except Exception:
@@ -598,12 +599,12 @@ class Link:
                     elif isinstance(queue_item[2], dict):
                         commit_callback.kwargs = queue_item[2]
                 queue_item = queue_item[0]
- 
+
             try:
                 electron = Electron(value=queue_item.value().decode('utf-8'))
             except Exception:
                 electron = pickle.loads(queue_item.value())
- 
+
             # Clean the previous topic
             electron.previous_topic = queue_item.topic()
             electron.topic = None
