@@ -11,9 +11,8 @@ class MiddleLink(Link):
         self.message_count = 0
 
     def generator(self):
-        while True:
-            self.logger.log("Hi from generator()")
-            time.sleep(1)
+        self.logger.log("Hi from generator()")
+        time.sleep(1)
 
     def transform(self, electron):
         self.logger.log(f'Received: {electron.value}')

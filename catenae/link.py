@@ -65,6 +65,13 @@ class Link:
                  aerospike_endpoint=None,
                  mongodb_endpoint=None):
 
+        # Preserve the id if the container restarts
+        if 'CATENAE_DOCKER' in environ \
+        and bool(environ['CATENAE_DOCKER']):
+            self._uid = environ['HOSTNAME']
+        else:
+            self._uid = utils.keccak256(str(uuid4()))[:12]
+
         self._set_log_level(log_level)
         self.logger = Logger(self, self._log_level)
         self.logger.log(f'log level: {self._log_level}')
@@ -72,13 +79,6 @@ class Link:
         self._launched = False
         self._input_topics_lock = Lock()
         self._rpc_lock = Lock()
-
-        # Preserve the id if the container restarts
-        if 'CATENAE_DOCKER' in environ \
-        and bool(environ['CATENAE_DOCKER']):
-            self._uid = environ['HOSTNAME']
-        else:
-            self._uid = utils.keccak256(str(uuid4()))[:12]
 
         # RPC topics
         self.rpc_instance_topic = f'catenae_rpc_{self._uid}'
@@ -535,11 +535,11 @@ class Link:
                     elif isinstance(transform_result[2], dict):
                         transform_callback.kwargs = transform_result[2]
 
-        if electrons is None and self._synchronous:
-            if transform_callback:
-                transform_callback.execute()
-
-            commit_callback.execute()
+        if electrons is None:
+            if self._synchronous:
+                if transform_callback:
+                    transform_callback.execute()
+                commit_callback.execute()
             return
 
         # Already a list
