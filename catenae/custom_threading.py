@@ -3,6 +3,7 @@
 
 import threading
 from .custom_queue import ThreadingQueue
+from .errors import EmptyError
 
 
 class Thread(threading.Thread):
@@ -41,7 +42,8 @@ class ThreadPool:
                     target(**kwargs)
                 else:
                     target()
-            except ThreadingQueue.EmptyError:
+            except EmptyError:
                 pass
             except Exception:
-                self.link_instance.logger.log(f'exception during the execution of a task', level='exception')
+                self.link_instance.logger.log(f'exception during the execution of a task',
+                                              level='exception')

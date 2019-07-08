@@ -5,6 +5,7 @@ import threading
 import multiprocessing
 import time
 from .utils import get_timestamp
+from .errors import EmptyError
 
 
 class CustomQueue:
@@ -19,12 +20,6 @@ class CustomQueue:
 
     def get(self):
         pass
-
-    class EmptyError(Exception):
-        def __init__(self, message=None):
-            if message is None:
-                message = 'The queue is empty'
-            super().__init__(message)
 
 
 class ThreadingQueue(CustomQueue):
@@ -54,7 +49,7 @@ class ThreadingQueue(CustomQueue):
                 return
             self._lock.release()
             if not block:
-                raise ThreadingQueue.EmptyError
+                raise EmptyError
             time.sleep(ThreadingQueue.BLOCKING_SECONDS)
 
     def get(self, block=True, timeout=None):
@@ -71,11 +66,11 @@ class ThreadingQueue(CustomQueue):
 
             self._lock.release()
             if timeout is None and not block:
-                raise ThreadingQueue.EmptyError
+                raise EmptyError
             time.sleep(ThreadingQueue.BLOCKING_SECONDS)
 
         if not block:
-            raise ThreadingQueue.EmptyError
+            raise EmptyError
 
 
 class LinkQueue(ThreadingQueue):

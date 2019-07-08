@@ -42,6 +42,7 @@ from socket import timeout
 import json
 import eventlet
 from . import utils
+from . import errors
 from .electron import Electron
 from .callback import Callback
 from .logger import Logger
@@ -52,13 +53,13 @@ from .connectors.aerospike import AerospikeConnector
 from .connectors.mongodb import MongodbConnector
 from .json_rpc import JsonRPC
 
-_is_method_rpc_enableds = set()
+_rpc_enabled_methods = set()
 
 
 def rpc(method):
     """ RPC decorator """
-    if method.__name__ not in _is_method_rpc_enableds:
-        _is_method_rpc_enableds.add(method.__name__)
+    if method.__name__ not in _rpc_enabled_methods and method.__name__ != '_try_except':
+        _rpc_enabled_methods.add(method.__name__)
     return method
 
 
@@ -67,7 +68,7 @@ def suicide_on_error(method):
 
     def _try_except(self, *args, **kwargs):
         try:
-            method(self, *args, **kwargs)
+            return method(self, *args, **kwargs)
         except Exception:
             import traceback
             traceback.print_exc()
@@ -96,20 +97,22 @@ class Link:
                  aerospike_endpoint=None,
                  mongodb_endpoint=None):
 
-        self._set_log_level(log_level)
-        self.logger = Logger(self, self._log_level)
-        self.logger.log(f'log level: {self._log_level}')
-
-        self._launched = False
-        self._input_topics_lock = Lock()
-        self._rpc_lock = Lock()
-
         # Preserve the id if the container restarts
         if 'CATENAE_DOCKER' in environ \
         and bool(environ['CATENAE_DOCKER']):
             self._uid = environ['HOSTNAME']
         else:
             self._uid = utils.get_uid()
+
+        self._set_log_level(log_level)
+        self.logger = Logger(self, self._log_level)
+        self.logger.log(f'log level: {self._log_level}')
+
+        self.logger.log(f'RPC-enabled methods: {_rpc_enabled_methods}')
+
+        self._launched = False
+        self._input_topics_lock = Lock()
+        self._rpc_lock = Lock()
 
         # RPC topics
         self._rpc_instance_topic = f'catenae_rpc_{self._uid}'
@@ -283,45 +286,44 @@ class Link:
 
             self._rpc_lock.acquire()
             is_notification, request = self._jsonrpc_conn1.recv()
+            self._rpc_lock.release()
+
             method, kwargs = request
             error_code = None
             result = None
 
             try:
                 result = self._jsonrpc_call(method, kwargs)
-            except JsonRPC.MethodNotFoundError:
+            except MethodNotFoundError:
                 error_code = JsonRPC.METHOD_NOT_FOUND
-            except JsonRPC.InternalError:
+            except InternalError:
                 error_code = JsonRPC.INTERNAL_ERROR
-            finally:
-                self._rpc_lock.release()
-
+                
             if not is_notification:
                 self._jsonrpc_conn1.send((error_code, result))
 
     @suicide_on_error
     def _is_method_rpc_enabled(self, method):
-        if method in _is_method_rpc_enableds:
+        if method in _rpc_enabled_methods:
             return True
         return False
 
     @suicide_on_error
     def _jsonrpc_call(self, method, kwargs=None):
         if not self._is_method_rpc_enabled(method):
-            self.logger.log(f'method {method} cannot be called', level='debug')
-            raise JsonRPC.MethodNotFoundError
+            self.logger.log(f'method {method} cannot be called', level='error')
+            raise errors.MethodNotFoundError
 
         if kwargs is None:
             kwargs = {}
 
         try:
-            return getattr(self, method)(**kwargs)
+            result = getattr(self, method)(**kwargs)
+            return result
         except Exception:
             self.logger.log(level='exception')
-            raise JsonRPC.InternalError
+            raise errors.InternalError
 
-    # Throws socket.timeout
-    @suicide_on_error
     def jsonrpc_call(self, uid, method, kwargs=None, request_id=None):
         instance_info = self._store['by_uid'][uid]
 
@@ -335,12 +337,16 @@ class Link:
 
         result = None
         try:
-            response_data = urlopen(Request(url=url, data=data), timeout=Link.TIMEOUT).read().decode('utf-8')
+            response_data = urlopen(Request(url=url, data=data)).read().decode('utf-8')
             result = json.loads(response_data)['result']
         except HTTPError as error:
             self.logger.log(f'HTTP error {error.code}', level='error')
             response_data = error.read().decode('utf-8')
             result = json.loads(response_data)['result']
+        except timeout:
+            raise errors.Timeout
+        except Exception:
+            raise errors.Remote
 
         return result
 
@@ -387,8 +393,8 @@ class Link:
     def available(self):
         return True
 
-    @rpc
     @suicide_on_error
+    @rpc
     def add_to_store(self, context, host=None, port=None, scheme=None):
         if self._it_is_me(host, port):
             return
@@ -427,9 +433,8 @@ class Link:
     @suicide_on_error
     def _kafka_rpc_call(self, electron, commit_callback):
         method = electron.value['method']
-
         if not self._is_method_rpc_enabled(method):
-            self.logger.log(f'method {method} cannot be called', level='debug')
+            self.logger.log(f'method {method} cannot be called', level='error')
             return
 
         self._rpc_lock.acquire()
@@ -539,7 +544,7 @@ class Link:
         while not current_thread().will_stop:
             try:
                 electron = self._output_messages.get(timeout=Link.TIMEOUT, block=False)
-            except LinkQueue.EmptyError:
+            except errors.EmptyError:
                 continue
 
             self._produce(electron)
@@ -566,7 +571,7 @@ class Link:
         # If the destiny topic is not specified, the first is used
         if not electron.topic:
             if not self._output_topics:
-                self.suicide('Electron / default output topic unset')
+                self.suicide('electron / default output topic unset')
             electron.topic = self._output_topics[0]
 
         # Electrons are serialized
@@ -627,11 +632,11 @@ class Link:
                     elif isinstance(transform_result[2], dict):
                         transform_callback.kwargs = transform_result[2]
 
-        if electrons is None and self._synchronous:
-            if transform_callback:
-                transform_callback.execute()
-
-            commit_callback.execute()
+        if electrons is None:
+            if self._synchronous:
+                if transform_callback:
+                    transform_callback.execute()
+                commit_callback.execute()
             return
 
         # Already a list
@@ -674,7 +679,7 @@ class Link:
 
             try:
                 queue_item = self._input_messages.get(timeout=Link.TIMEOUT, block=False)
-            except LinkQueue.EmptyError:
+            except errors.EmptyError:
                 continue
 
             self.logger.log('electron received', level='debug')
@@ -1063,7 +1068,7 @@ class Link:
         self._jsonrpc_process.start()
 
         # Generator
-        self._generator_main_thread = Thread(target=self._thread_target, kwargs={'target': self.generator})
+        self._generator_main_thread = Thread(target=self._loop_thread_target, kwargs={'target': self.generator})
         self._generator_main_thread.start()
 
         # Kafka main consumer

@@ -1,20 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from catenae import Link, Electron
-import time
-import logging
+from catenae import Link, Electron, rpc
 
 
 class MiddleLink(Link):
-    def setup(self):
-        self.message_count = 0
-
+    @rpc
     def plus_two(self, number=0):
+        self.logger.log(f'method plus_two invoked')
         return number + 2
-
-    def transform(self, electron):
-        self.logger.log(f'Received: {electron.value}')
 
 
 if __name__ == "__main__":

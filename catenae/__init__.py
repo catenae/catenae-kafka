@@ -5,6 +5,7 @@ import logging
 from .electron import Electron
 from .link import Link, rpc
 from . import utils
+from . import errors
 from .structures import CircularOrderedDict, CircularOrderedSet
 from .custom_queue import ThreadingQueue
 from .custom_threading import Thread, ThreadPool

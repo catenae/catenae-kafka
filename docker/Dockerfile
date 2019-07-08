@@ -1,5 +1,5 @@
 # Catenae Link
-# Copyright (C) 2018 Rodrigo Martínez <dev@brunneis.com>
+# Copyright (C) 2018-2019 Rodrigo Martínez <dev@brunneis.com>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -12,8 +12,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-FROM catenae/link:develop
-
+FROM catenae/link:ubuntu
 ADD catenae.tar /opt/catenae
 RUN \
     pip uninstall -y catenae \

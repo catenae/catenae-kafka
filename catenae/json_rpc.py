@@ -9,22 +9,13 @@ from gunicorn.six import iteritems
 import sys
 import logging
 from .logger import Logger
+from .errors import *
 from os import environ
 import json
+from multiprocessing import Lock
 
 
 class JsonRPC:
-    def __init__(self, pipe_connection, logger):
-        self.logger = logger
-        self.app = Flask(__name__)
-        CORS(self.app)
-        api = Api(self.app)
-        api.add_resource(JsonRPC.Endpoint,
-                         '/',
-                         resource_class_kwargs={
-                             'pipe_connection': pipe_connection,
-                             'logger': logger
-                         })
 
     PARSE_ERROR = -32700
     INVALID_REQUEST = -32600
@@ -49,25 +40,18 @@ class JsonRPC:
         INTERNAL_ERROR: 500
     }
 
-    class ParseError(Exception):
-        def __init__(self, message=None):
-            super(JsonRPC.ParseError, self).__init__(message)
-
-    class InvalidRequestError(Exception):
-        def __init__(self, message=None):
-            super(JsonRPC.InvalidRequestError, self).__init__(message)
-
-    class MethodNotFoundError(Exception):
-        def __init__(self, message=None):
-            super(JsonRPC.MethodNotFoundError, self).__init__(message)
-
-    class InvalidParamsError(Exception):
-        def __init__(self, message=None):
-            super(JsonRPC.InvalidParamsError, self).__init__(message)
-
-    class InternalError(Exception):
-        def __init__(self, message=None):
-            super(JsonRPC.InternalError, self).__init__(message)
+    def __init__(self, pipe_connection, logger):
+        self.logger = logger
+        self.app = Flask(__name__)
+        CORS(self.app)
+        api = Api(self.app)
+        api.add_resource(JsonRPC.Endpoint,
+                         '/',
+                         resource_class_kwargs={
+                             'pipe_connection': pipe_connection,
+                             'logger': logger,
+                             'lock': Lock()
+                         })
 
     @staticmethod
     def get_response(id, result=None, error_code=None):
@@ -88,24 +72,25 @@ class JsonRPC:
         return response
 
     class Endpoint(Resource):
-        def __init__(self, pipe_connection, logger):
+        def __init__(self, pipe_connection, logger, lock):
             self.pipe_connection = pipe_connection
             self.logger = logger
+            self.lock = lock
 
         def check_valid_jsonrpc_request(self, rpc_request):
             if 'jsonrpc' not in rpc_request:
                 raise AttributeError
             if rpc_request['jsonrpc'] != '2.0':
-                raise JsonRPC.InvalidRequestError
+                raise InvalidRequestError
 
             if 'method' not in rpc_request:
-                raise JsonRPC.InvalidRequestError
+                raise InvalidRequestError
             if type(rpc_request['method']) is not str:
-                raise JsonRPC.InvalidRequestError
+                raise InvalidRequestError
 
             if 'params' in rpc_request:
                 if type(rpc_request['params']) is not dict:
-                    raise JsonRPC.InvalidParamsError
+                    raise InvalidParamsError
 
         def post(self):
             try:
@@ -123,10 +108,10 @@ class JsonRPC:
 
             try:
                 self.check_valid_jsonrpc_request(rpc_request)
-            except JsonRPC.InvalidRequestError:
+            except InvalidRequestError:
                 response = JsonRPC.get_response(request_id, error_code=JsonRPC.INVALID_REQUEST)
                 return response, 400
-            except JsonRPC.InvalidParamsError:
+            except InvalidParamsError:
                 response = JsonRPC.get_response(request_id, error_code=JsonRPC.INVALID_PARAMS)
                 return response, 400
 
@@ -135,13 +120,16 @@ class JsonRPC:
             else:
                 queue_request = (rpc_request['method'], None)
 
+            self.lock.acquire()
+            self.pipe_connection.send((is_notification, queue_request))
+
             if is_notification:
-                self.pipe_connection.send((True, queue_request))
+                self.lock.release()
                 return Response(status=200)
-            else:
-                self.pipe_connection.send((False, queue_request))
 
             error_code, result = self.pipe_connection.recv()
+            self.lock.release()
+
             response = JsonRPC.get_response(request_id, result=result, error_code=error_code)
 
             try:
@@ -167,7 +155,7 @@ class JsonRPC:
         sys.stderr = JsonRPC.StreamToLogger(self.logger)
         # In order to support multiple workers, the interprocess communication
         # has to be reimplemented with queues instead of pipes
-        options = {'bind': f"0.0.0.0:{environ['JSONRPC_PORT']}", 'workers': 1, 'timeout': 60}
+        options = {'bind': f"0.0.0.0:{environ['JSONRPC_PORT']}", 'workers': 1, 'timeout': 30}
         Server(self.app, options).run()
 
 
