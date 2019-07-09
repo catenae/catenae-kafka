@@ -7,8 +7,8 @@ from .errors import EmptyError
 
 
 class Thread(threading.Thread):
-    def __init__(self, **kwargs):
-        super(Thread, self).__init__(**kwargs)
+    def __init__(self, *args, **kwargs):
+        super(Thread, self).__init__(*args, **kwargs)
         self._will_stop = False
 
     def stop(self):

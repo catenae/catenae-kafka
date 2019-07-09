@@ -1,17 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-#          ***            **     ******************     ***         ***       ***           **               ***
-#       ***              ****            **           ***           ****      ***          ****            ***
-#     ***              ***  ***          **         ***             *****     ***        ***  ***        ***
-#   ***               ***    ***         **       ***               *** ***   ***       ***    ***     ***
-#  ***               ***      ***        **     ******************  ***  ***  ***      ***      ***   ******************
-#    ***            ***        ***       **       ***               ***    ** ***     ***        ***    ***
-#      ***         ***          ***      **         ***             ***     *****    ***          ***     ***
-#         ***     ***            ***     **           ***           ***      ****   ***            ***      ***
-#           ***  ***              ***    **             ***         ***       ***  ***              ***       ***
-
-# Catenae
+#
+#          xxx            xx     xxxxxxxxxxxxxxxxxx     xxx         xxx       xxx           xx               xxx
+#        xxx             xxxx            xx           xxx           xxxx      xxx          xxxx            xxx
+#      xxx             xxx  xxx          xx         xxx             xxxxx     xxx        xxx  xxx        xxx
+#    xxx              xxx    xxx         xx       xxx               xxx xxx   xxx       xxx    xxx     xxx
+#  xxx               xxx      xxx        xx     xxxxxxxxxxxxxxxxxx  xxx  xxx  xxx      xxx      xxx   xxxxxxxxxxxxxxxxxx
+#    xxx            xxx        xxx       xx       xxx               xxx    xx xxx     xxx        xxx    xxx
+#      xxx         xxx          xxx      xx         xxx             xxx     xxxxx    xxx          xxx     xxx
+#        xxx      xxx            xxx     xx           xxx           xxx      xxxx   xxx            xxx      xxx
+#          xxx   xxx              xxx    xx             xxx         xxx       xxx  xxx              xxx       xxx
+#
+# Catenae 2.0.0 Beryllium
 # Copyright (C) 2017-2019 Rodrigo Martínez Castaño
 #
 # This program is free software: you can redistribute it and/or modify
@@ -80,6 +80,8 @@ def suicide_on_error(method):
 class Link:
 
     TIMEOUT = 0.5
+    CHECK_INSTANCES_INTERVAL = 5
+    INSTANCE_TIMEOUT = 3
 
     def __init__(self,
                  log_level='INFO',
@@ -131,7 +133,10 @@ class Link:
         self._jsonrpc_conn1, self._jsonrpc_conn2 = Pipe()
         self._changed_input_topics = False
 
-        self._store = {'by_uid': dict(), 'by_group': dict()}
+        self._instances_store_lock = Lock()
+        self._instances_store = {'by_uid': dict(), 'by_group': dict()}
+        self._known_instances = dict()
+        self._safe_stop_loop_threads = list()
 
     @suicide_on_error
     def _set_connectors_properties(self, aerospike_endpoint, mongodb_endpoint):
@@ -237,13 +242,13 @@ class Link:
         return self._mongodb
 
     @suicide_on_error
-    def _loop_task(self, target, args=None, kwargs=None, interval=None, wait=False):
+    def _loop_task(self, target, args=None, kwargs=None, interval=0, wait=False, level='debug'):
         if wait:
             time.sleep(interval)
 
         while not current_thread().will_stop:
             try:
-                self.logger.log(f'new loop iteration ({target.__name__})')
+                self.logger.log(f'new loop iteration ({target.__name__})', level=level)
                 start_timestamp = utils.get_timestamp()
 
                 if args:
@@ -277,30 +282,69 @@ class Link:
         self.suicide(f'({signal_name})')
 
     @suicide_on_error
+    def _check_instances(self):
+        for uid, properties in self._known_instances.items():
+            self.logger.log(f"checking instance availability for {uid}", level='debug')
+            
+            group = properties['group']
+            host = properties['host']
+            port = properties['port']
+            scheme = properties['scheme']
+            
+            if self._is_endpoint_available(host, port, scheme):
+                self._add_to_store(uid, group, host, port, scheme)
+            else:
+                self._delete_from_store(uid, group)
+
+    @suicide_on_error
+    def _delete_from_store(self, uid, group):
+        self._instances_store_lock.acquire()
+
+        if uid in self._instances_store['by_uid']:
+            del self._instances_store['by_uid'][uid]
+            self._instances_store['by_group'][group].remove(uid)
+
+        self._instances_store_lock.release()
+
+    @suicide_on_error
+    def _add_to_store(self, uid, group, host, port, scheme):
+        self._instances_store_lock.acquire()
+
+        self._instances_store['by_uid'][uid] = {'host': host,
+                                      'port': port,
+                                      'scheme': scheme,
+                                      'group': group}
+        if not group in self._instances_store['by_group']:
+            self._instances_store['by_group'][group] = list()
+
+        if uid not in self._instances_store['by_group'][group]:
+            self._instances_store['by_group'][group].append(uid)
+
+        self._instances_store_lock.release()
+
+    @suicide_on_error
     def _rpc_request_monitor(self):
-        while not current_thread().will_stop:
-            new_data = self._jsonrpc_conn1.poll()
-            if not new_data:
-                time.sleep(Link.TIMEOUT)
-                continue
+        new_data = self._jsonrpc_conn1.poll()
+        if not new_data:
+            return
 
-            self._rpc_lock.acquire()
-            is_notification, request = self._jsonrpc_conn1.recv()
-            self._rpc_lock.release()
+        self._rpc_lock.acquire()
+        is_notification, request = self._jsonrpc_conn1.recv()
+        self._rpc_lock.release()
 
-            method, kwargs = request
-            error_code = None
-            result = None
+        method, kwargs = request
+        error_code = None
+        result = None
 
-            try:
-                result = self._jsonrpc_call(method, kwargs)
-            except MethodNotFoundError:
-                error_code = JsonRPC.METHOD_NOT_FOUND
-            except InternalError:
-                error_code = JsonRPC.INTERNAL_ERROR
-                
-            if not is_notification:
-                self._jsonrpc_conn1.send((error_code, result))
+        try:
+            result = self._jsonrpc_call(method, kwargs)
+        except errors.MethodNotFoundError:
+            error_code = JsonRPC.METHOD_NOT_FOUND
+        except errors.InternalError:
+            error_code = JsonRPC.INTERNAL_ERROR
+            
+        if not is_notification:
+            self._jsonrpc_conn1.send((error_code, result))
 
     @suicide_on_error
     def _is_method_rpc_enabled(self, method):
@@ -325,7 +369,7 @@ class Link:
             raise errors.InternalError
 
     def jsonrpc_call(self, uid, method, kwargs=None, request_id=None):
-        instance_info = self._store['by_uid'][uid]
+        instance_info = self._instances_store['by_uid'][uid]
 
         url = f"{instance_info['scheme']}://{instance_info['host']}:{instance_info['port']}"
 
@@ -358,36 +402,29 @@ class Link:
         return False
 
     @suicide_on_error
-    def is_uid_available(self, uid, timeout=None):
-        host = self.store['by_uid'][uid]['host']
-        port = self.store['by_uid'][uid]['port']
-        scheme = self.store['by_uid'][uid]['scheme']
-        return self._is_endpoint_available(host, port, scheme, timeout=timeout, uid=uid)
-
-    @suicide_on_error
-    def _is_endpoint_available(self, host, port, scheme, timeout=None, uid=''):
-        if timeout is None:
-            timeout = Link.TIMEOUT
-
+    def _is_endpoint_available(self, host, port, scheme):
         request = {'jsonrpc': '2.0', 'method': 'available', 'id': 0}
         data = bytes(json.dumps(request), 'utf-8')
 
         url = f'{scheme}://{host}:{port}'
+
         try:
-            with eventlet.Timeout(timeout):
+            with eventlet.Timeout(Link.INSTANCE_TIMEOUT):
                 urlopen(Request(url=url, data=data)).read().decode('utf-8')
         except Exception:
-            self.logger.log(' '.join(f'instance {uid} is not available ({scheme}://{host}:{port})'.split()))
             return False
         return True
 
     @property
-    def store(self):
-        return dict(self._store)
+    def instances_store(self):
+        self._instances_store_lock.acquire()
+        instances_store = dict(self._instances_store)
+        self._instances_store_lock.release()
+        return instances_store
 
     @rpc
-    def get_store(self):
-        return self.store
+    def get_instances_store(self):
+        return self.instances_store
 
     @rpc
     def available(self):
@@ -395,20 +432,14 @@ class Link:
 
     @suicide_on_error
     @rpc
-    def add_to_store(self, context, host=None, port=None, scheme=None):
+    def add_instance_to_store(self, context, host, port, scheme):
         if self._it_is_me(host, port):
-            return
+            return True
 
-        if not self._is_endpoint_available(host, port, scheme):
-            return
-
-        instance_info = dict(host=host, port=port, scheme=scheme, uid=context['uid'], group=context['group'])
-
-        self._store['by_uid'][context['uid']] = instance_info
-
-        if not context['group'] in self._store['by_group']:
-            self._store['by_group'][context['group']] = dict()
-        self._store['by_group'][context['group']][context['uid']] = instance_info
+        self._known_instances[context['uid']] = {'host': host,
+                                                 'port': port,
+                                                 'scheme': scheme,
+                                                 'group': context['group']}
 
     @suicide_on_error
     def rpc_call(self, to='broadcast', method=None, args=None, kwargs=None):
@@ -495,27 +526,31 @@ class Link:
             self._producer_thread.stop()
             self._input_handler_thread.stop()
             self._consumer_rpc_thread.stop()
-            self._rpc_request_monitor_thread.stop()
-            self._generator_main_thread.stop()
             self._consumer_main_thread.stop()
 
             for thread in self._transform_rpc_executor.threads:
                 thread.stop()
+
             for thread in self._transform_main_executor.threads:
+                thread.stop()
+
+            for thread in self._safe_stop_loop_threads:
                 thread.stop()
 
         # Kill the thread that invoked the suicide method
         raise SystemExit
 
     @suicide_on_error
-    def _join_if_not_current_thread(self, thread, name):
-        if thread is not current_thread():
-            thread.join()
-
-    @suicide_on_error
-    def loop(self, target, args=None, kwargs=None, interval=60, wait=False):
-        loop_task_kwargs = {'target': target, 'args': args, 'kwargs': kwargs, 'interval': interval, 'wait': wait}
+    def loop(self, target, args=None, kwargs=None, interval=0, wait=False, level='debug', safe_stop=True):
+        loop_task_kwargs = {'target': target,
+                            'args': args, 
+                            'kwargs': kwargs, 
+                            'interval': interval, 
+                            'wait': wait,
+                            'level': level}
         loop_thread = Thread(target=self._loop_task, kwargs=loop_task_kwargs)
+        if safe_stop:
+            self._safe_stop_loop_threads.append(loop_thread)
         loop_thread.start()
         return loop_thread
 
@@ -948,7 +983,7 @@ class Link:
             self._output_messages.put(electron)
 
     def generator(self):
-        self.logger.log('Generator method undefined. Disabled.')
+        self.logger.log('Generator method undefined. Disabled.', level='debug')
         # Kill the generator thread
         raise SystemExit
 
@@ -963,11 +998,6 @@ class Link:
                 target()
         except Exception:
             self.suicide(f'Exception during the execution of "{target.__name__}"', exception=True)
-
-    @suicide_on_error
-    def _loop_thread_target(self, target, args=None, kwargs=None):
-        while not current_thread().will_stop:
-            self._thread_target(target, args, kwargs)
 
     @suicide_on_error
     def add_input_topic(self, input_topic):
@@ -1005,6 +1035,7 @@ class Link:
             self.suicide('Exception during the execution of "setup"', exception=True)
 
         if self._kafka_endpoint:
+            self.logger.log(f'link {self._uid} is starting...')
             self._launch_tasks()
             self._report_existence()
         self._launched = True
@@ -1017,16 +1048,23 @@ class Link:
             self._producer_thread.join()
             self._input_handler_thread.join()
             self._consumer_rpc_thread.join()
-            self._rpc_request_monitor_thread.join()
-            self._generator_main_thread.join()
             self._consumer_main_thread.join()
 
-            for i, thread in enumerate(self._transform_rpc_executor.threads):
-                self._join_if_not_current_thread(thread, f'{i} _transform_rpc_executor')
-            for i, thread in enumerate(self._transform_main_executor.threads):
-                self._join_if_not_current_thread(thread, f'{i} _transform_rpc_executor')
+            for thread in self._transform_rpc_executor.threads:
+                self._join_if_not_current_thread(thread)
+
+            for thread in self._transform_main_executor.threads:
+                self._join_if_not_current_thread(thread)
+
+            for thread in self._safe_stop_loop_threads:
+                self._join_if_not_current_thread(thread)
 
             self.logger.log(f'link {self.uid} stopped')
+
+    @suicide_on_error
+    def _join_if_not_current_thread(self, thread):
+        if thread is not current_thread():
+            thread.join()
 
     @suicide_on_error
     def _setup_kafka_producers(self):
@@ -1041,6 +1079,17 @@ class Link:
 
     @suicide_on_error
     def _launch_tasks(self):
+
+        # Kafka RPC consumer
+        consumer_kwargs = {'target': self._kafka_consumer_rpc}
+        self._consumer_rpc_thread = Thread(target=self._thread_target, kwargs=consumer_kwargs)
+        self._consumer_rpc_thread.start()
+
+        # Kafka main consumer
+        self._set_input_topic_assignments()
+        self._consumer_main_thread = Thread(target=self._thread_target, kwargs={'target': self._kafka_consumer_main})
+        self._consumer_main_thread.start()
+
         # Kafka producer
         producer_kwargs = {'target': self._kafka_producer}
         self._producer_thread = Thread(target=self._thread_target, kwargs=producer_kwargs)
@@ -1053,33 +1102,24 @@ class Link:
         self._input_handler_thread = Thread(target=self._thread_target, kwargs=transform_kwargs)
         self._input_handler_thread.start()
 
-        # Kafka RPC consumer
-        consumer_kwargs = {'target': self._kafka_consumer_rpc}
-        self._consumer_rpc_thread = Thread(target=self._thread_target, kwargs=consumer_kwargs)
-        self._consumer_rpc_thread.start()
+        # Unavailable instances monitor
+        self.loop(self._check_instances, interval=Link.CHECK_INSTANCES_INTERVAL, safe_stop=True)
+
+        # Generator
+        self.loop(self.generator, interval=0, safe_stop=True)
 
         # RPC requests thread
-        self._rpc_request_monitor_thread = Thread(target=self._rpc_request_monitor)
-        self._rpc_request_monitor_thread.start()
+        self.loop(self._rpc_request_monitor, interval=Link.TIMEOUT)
 
         # JSON-RPC
         self._jsonrpc_process = Process(target=JsonRPC(self._jsonrpc_conn2, self.logger).run)
         self._jsonrpc_process.daemon = True
         self._jsonrpc_process.start()
 
-        # Generator
-        self._generator_main_thread = Thread(target=self._loop_thread_target, kwargs={'target': self.generator})
-        self._generator_main_thread.start()
-
-        # Kafka main consumer
-        self._set_input_topic_assignments()
-        self._consumer_main_thread = Thread(target=self._thread_target, kwargs={'target': self._kafka_consumer_main})
-        self._consumer_main_thread.start()
-
     @suicide_on_error
     def _report_existence(self):
         kwargs = {'host': environ['JSONRPC_HOST'], 'port': environ['JSONRPC_PORT'], 'scheme': environ['JSONRPC_SCHEME']}
-        self.rpc_call(to='broadcast', method='add_to_store', kwargs=kwargs)
+        self.rpc_call(to='broadcast', method='add_instance_to_store', kwargs=kwargs)
 
     def _set_log_level(self, log_level):
         if not hasattr(self, '_log_level'):

@@ -17,6 +17,8 @@ from multiprocessing import Lock
 
 class JsonRPC:
 
+    WORKER_TIMEOUT = 30
+
     PARSE_ERROR = -32700
     INVALID_REQUEST = -32600
     METHOD_NOT_FOUND = -32601
@@ -155,7 +157,11 @@ class JsonRPC:
         sys.stderr = JsonRPC.StreamToLogger(self.logger)
         # In order to support multiple workers, the interprocess communication
         # has to be reimplemented with queues instead of pipes
-        options = {'bind': f"0.0.0.0:{environ['JSONRPC_PORT']}", 'workers': 1, 'timeout': 30}
+        options = {
+            'bind': f"0.0.0.0:{environ['JSONRPC_PORT']}",
+            'workers': 1,
+            'timeout': JsonRPC.WORKER_TIMEOUT
+        }
         Server(self.app, options).run()
 
 
