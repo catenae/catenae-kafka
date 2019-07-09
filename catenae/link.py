@@ -332,19 +332,44 @@ class Link:
         is_notification, request = self._jsonrpc_conn1.recv()
         self._rpc_lock.release()
 
-        method, kwargs = request
+        response = dict()
         error_code = None
-        result = None
-
         try:
-            result = self._jsonrpc_call(method, kwargs)
+            method, kwargs = request
+            output = self._jsonrpc_call(method, kwargs)
+
+            if not isinstance(output, tuple):
+                response.update({'result': output})
+
+            else:
+                if len(output) != 2:
+                    raise ValueError
+                error_code = output[0]
+                error_message = output[1] 
+                if not isinstance(error_message, str):
+                    raise ValueError
+
+                response.update({'error': {'code': error_code,
+                                           'message': error_message}})
+        
+        except errors.InvalidParamsError:
+            error_code = JsonRPC.INVALID_PARAMS
+
         except errors.MethodNotFoundError:
             error_code = JsonRPC.METHOD_NOT_FOUND
+
         except errors.InternalError:
             error_code = JsonRPC.INTERNAL_ERROR
-            
-        if not is_notification:
-            self._jsonrpc_conn1.send((error_code, result))
+ 
+        finally:
+            if is_notification:
+                return
+
+        if error_code is not None and 'error' not in response:
+            response.update({'error': {'code': error_code,
+                                       'message': JsonRPC.ERROR_CODES[error_code]}})
+
+        self._jsonrpc_conn1.send(response)
 
     @suicide_on_error
     def _is_method_rpc_enabled(self, method):
@@ -352,18 +377,21 @@ class Link:
             return True
         return False
 
-    @suicide_on_error
     def _jsonrpc_call(self, method, kwargs=None):
         if not self._is_method_rpc_enabled(method):
             self.logger.log(f'method {method} cannot be called', level='error')
             raise errors.MethodNotFoundError
 
         if kwargs is None:
-            kwargs = {}
+            kwargs = dict()
 
         try:
-            result = getattr(self, method)(**kwargs)
-            return result
+            output = getattr(self, method)(**kwargs)
+            return output
+
+        except TypeError:
+            raise errors.InvalidParamsError
+
         except Exception:
             self.logger.log(level='exception')
             raise errors.InternalError
@@ -559,7 +587,7 @@ class Link:
         if args is None:
             args = ()
         if kwargs is None:
-            kwargs = {}
+            kwargs = dict()
         thread = Thread(target=target, args=args, kwargs=kwargs)
         thread.start()
         return thread
@@ -569,7 +597,7 @@ class Link:
         if args is None:
             args = ()
         if kwargs is None:
-            kwargs = {}
+            kwargs = dict()
         process = Process(target=target, args=args, kwargs=kwargs)
         process.start()
         return process
@@ -1208,7 +1236,7 @@ class Link:
             self._input_topic_assignments = {-1: -1}
 
         elif self._input_mode == 'exp':
-            self._input_topic_assignments = {}
+            self._input_topic_assignments = dict()
 
             if len(self._input_topics[0]) == 1:
                 self._input_topic_assignments[self._input_topics[0]] = -1

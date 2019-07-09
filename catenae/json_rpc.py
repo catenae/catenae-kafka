@@ -56,19 +56,17 @@ class JsonRPC:
                          })
 
     @staticmethod
-    def get_response(id, result=None, error_code=None):
+    def get_response(id, result=None, error_code=None, error_message=None):
         response = {'jsonrpc': '2.0'}
 
-        if error_code is None:
+        if result is not None and error_code is None:
             response.update({'result': result})
-        else:
+        elif error_code is not None and result is None:
             if error_code in JsonRPC.ERROR_CODES:
-                message = JsonRPC.ERROR_CODES[error_code]
+                error_message = JsonRPC.ERROR_CODES[error_code]
             elif error_code >= -32099 and error_code <= -32000:
-                message = 'Server error'
-            else:
-                raise ValueError
-            response.update({'error': {'code': error_code, 'message': message}})
+                error_message = 'Server error'
+            response.update({'error': {'code': error_code, 'message': error_message}})
 
         response.update({'id': id})
         return response
@@ -129,10 +127,11 @@ class JsonRPC:
                 self.lock.release()
                 return Response(status=200)
 
-            error_code, result = self.pipe_connection.recv()
-            self.lock.release()
+            response = JsonRPC.get_response(request_id)
+            returned = self.pipe_connection.recv()
+            response.update(returned)
 
-            response = JsonRPC.get_response(request_id, result=result, error_code=error_code)
+            self.lock.release()
 
             try:
                 json.dumps(response)
@@ -140,7 +139,12 @@ class JsonRPC:
                 self.logger.log(level='exception')
                 response = JsonRPC.get_response(request_id, error_code=JsonRPC.INTERNAL_ERROR)
 
-            http_code = JsonRPC.HTTP_CODE[error_code]
+            http_code = 200
+            if 'error' in response:
+                if response['error']['code'] not in JsonRPC.HTTP_CODE:
+                    http_code = 500
+                else:
+                    http_code = JsonRPC.HTTP_CODE[response['error']['code']]
             return response, http_code
 
     class StreamToLogger:

@@ -10,6 +10,10 @@ class MiddleLink(Link):
         self.logger.log(f'method plus_two invoked')
         return number + 2
 
+    @rpc
+    def fail(self):
+        return -32000, "Custom error"
+
 
 if __name__ == "__main__":
     MiddleLink().start()
