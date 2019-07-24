@@ -130,7 +130,7 @@ class Link:
     def mongodb(self):
         return self._mongodb
 
-    def start(self):
+    def start(self, embedded=False):
         if self._launched:
             return
 
@@ -149,8 +149,13 @@ class Link:
             self._launch_tasks()
         self._launched = True
 
-        self._setup_signal_handlers()
-
+        if embedded:
+            Thread(target=self._main_thread).start()
+        else:
+            self._setup_signals_handler()
+            self._main_thread()
+ 
+    def _main_thread(self):
         if self._kafka_endpoint:
             self.logger.log(f'link {self._uid} is running')
 
@@ -175,7 +180,7 @@ class Link:
             thread.stop()
 
     def generator(self):
-        self.logger.log('Generator method undefined. Disabled.')
+        self.logger.log('Generator method undefined. Disabled.', level='debug')
         # Kill the generator thread
         raise SystemExit
 
@@ -861,7 +866,7 @@ class Link:
         while not current_thread().will_stop:
             self._thread_target(target, args, kwargs)
 
-    def _setup_signal_handlers(self):
+    def _setup_signals_handler(self):
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGQUIT, self._signal_handler)

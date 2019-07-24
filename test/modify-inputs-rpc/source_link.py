@@ -13,7 +13,7 @@ class SourceLink(Link):
         self.logger.log(f'Invoking add_input()')
         self.rpc_call('MiddleLink', 'add_input', args=['topic2'])
 
-        time.sleep(10)
+        time.sleep(15)
 
         self.logger.log(f'Invoking remove_input()')
         self.rpc_call('MiddleLink', 'remove_input', args=['topic2'])
@@ -22,4 +22,4 @@ class SourceLink(Link):
 
 
 if __name__ == "__main__":
-    SourceLink().start()
+    SourceLink(sequential=True).start()
