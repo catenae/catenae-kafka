@@ -7,15 +7,13 @@ import time
 
 class SourceLink(Link):
     def setup(self):
-        self.finished = False
+        self.counter = 0
 
     def generator(self):
-        self.suicide()
-
-    def finish(self):
-        self.finished = True
-        self.logger.log(f'finished: {self.finished}')
+        self.send(f'message {self.counter}')
+        self.counter += 1
+        time.sleep(1)
 
 
 if __name__ == "__main__":
-    SourceLink().start()
+    SourceLink(synchronous=True).start()

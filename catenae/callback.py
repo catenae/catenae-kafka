@@ -9,11 +9,19 @@ class Callback:
 
     COMMIT_KAFKA_MESSAGE = 0
 
-    def __init__(self, target=None, args=None, kwargs=None, type_=None):
+    def __init__(self, target=None, args=None, kwargs=None, mode=None):
         self.target = target
-        self.args = args
-        self.kwargs = kwargs
-        self.type_ = type_
+        self.mode = mode
+
+        if args is None:
+            self.args = []
+        else:
+            self.args = args
+
+        if kwargs is None:
+            self.kwargs = {}
+        else:
+            self.kwargs = kwargs
 
     def __bool__(self):
         if self.target != None:
@@ -22,36 +30,28 @@ class Callback:
 
     def execute(self):
         if not self:
-            logging.error('Callback without target.')
+            logging.error('callback without target.')
             return
 
-        if self.type_ == self.COMMIT_KAFKA_MESSAGE:
-            return self._execute_commit_kafka_message_callback()
+        if self.mode == self.COMMIT_KAFKA_MESSAGE:
+            self._execute_kafka_commit()
+            return
 
-        if self.kwargs:
-            self.target(**self.kwargs)
-        elif self.args:
-            self.target(*self.args)
-        else:
-            self.target()
+        self._execute()
 
-    def _execute_commit_kafka_message_callback(self):
+    def _execute(self):
+        self.target(*self.args, **self.kwargs)
+
+    def _execute_kafka_commit(self):
         done = False
         attempts = 0
         while not done:
-            if attempts == 15:
-                raise Exception('Cannot commit a message.')
             try:
-                if self.kwargs:
-                    self.target(**self.kwargs)
-                elif self.args:
-                    self.target(*self.args)
-                else:
-                    self.target()
+                self._execute()
                 done = True
             except Exception as e:
                 if 'UNKNOWN_MEMBER_ID' in str(e):
                     raise Exception('Cannot commit a message (timeout).')
                 logging.exception(f'Trying to commit a message ({attempts})...')
                 attempts += 1
-                time.sleep(2)
+                time.sleep(1)

@@ -28,23 +28,19 @@ class Electron:
         return False
 
     def get_sendable(self):
-        copy = self.deepcopy()
+        copy = self.copy()
         copy.topic = None
         copy.previous_topic = None
         copy.unpack_if_string = False
         copy.callbacks = []
         return copy
 
-    def deepcopy(self):
+    def copy(self):
         electron = Electron()
         electron.key = self.key
         electron.value = copy.deepcopy(self.value)
         electron.topic = self.topic
         electron.previous_topic = self.previous_topic
         electron.unpack_if_string = self.unpack_if_string
-        self.callbacks = []
+        electron.callbacks = self.callbacks
         return electron
-
-    def copy(self):
-        return Electron(self.key, self.value, self.topic, self.previous_topic,
-                        self.unpack_if_string, self.callbacks)
