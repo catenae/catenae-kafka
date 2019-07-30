@@ -12,16 +12,33 @@ class Callback:
     def __init__(self, target=None, args=None, kwargs=None, mode=None):
         self.target = target
         self.mode = mode
+        self.args = args
+        self.kwargs = kwargs
 
-        if args is None:
-            self.args = []
-        else:
-            self.args = args
+    @property
+    def args(self):
+        return self._args
 
-        if kwargs is None:
-            self.kwargs = {}
+    @args.setter
+    def args(self, value):
+        if value is None:
+            self._args = []
         else:
-            self.kwargs = kwargs
+            if isinstance(value, list):
+                self._args = value
+            else:
+                self._args = [value]
+
+    @property
+    def kwargs(self):
+        return self._kwargs
+
+    @kwargs.setter
+    def kwargs(self, value):
+        if value is None:
+            self._kwargs = {}
+        else:
+            self._kwargs = value
 
     def __bool__(self):
         if self.target != None:
@@ -40,7 +57,7 @@ class Callback:
         self._execute()
 
     def _execute(self):
-        self.target(*self.args, **self.kwargs)
+        self.target(*self._args, **self._kwargs)
 
     def _execute_kafka_commit(self):
         done = False

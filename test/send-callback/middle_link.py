@@ -13,7 +13,7 @@ class MiddleLink(Link):
 
     def transform(self, electron):
         self.logger.log(f'Received: {electron.value}')
-        return "uno", self.callback_method, electron.value
+        self.send("uno", callback=self.callback_method, callback_args=electron.value)
 
 
 if __name__ == "__main__":
