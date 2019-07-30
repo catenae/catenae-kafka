@@ -1,0 +1,13 @@
+version: "3.4"
+
+x-logging: &default-logging
+  options:
+    max-size: "50m"
+    max-file: "1"
+  driver: json-file
+
+services:
+  source_link:
+    image: catenae/link:develop
+    command: source_link.py
+    working_dir: /opt/catenae/test/finish-suicide

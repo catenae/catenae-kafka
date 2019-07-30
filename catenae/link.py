@@ -144,8 +144,7 @@ class Link:
         except Exception:
             self.suicide('Exception during the execution of "setup"', exception=True)
 
-        if self._kafka_endpoint:
-            self._launch_tasks()
+        self._launch_tasks()
         self._launched = True
 
         if embedded:
@@ -177,6 +176,9 @@ class Link:
     def transform(self, _):
         for thread in self._transform_main_executor.threads:
             thread.stop()
+
+    def finish(self):
+        pass
 
     def generator(self):
         self.logger.log('Generator method undefined. Disabled.', level='debug')
@@ -237,6 +239,8 @@ class Link:
                 self.logger.log(f'removed input {input_topic}')
 
     def suicide(self, message=None, exception=False):
+        self.finish()
+
         if message is None:
             message = '[SUICIDE]'
         else:
@@ -250,13 +254,14 @@ class Link:
         while not self._launched:
             time.sleep(Link.TIMEOUT)
 
+        self._generator_main_thread.stop()
+
         if self._kafka_endpoint:
             self.logger.log('stopping threads...')
 
             self._producer_thread.stop()
             self._input_handler_thread.stop()
             self._consumer_rpc_thread.stop()
-            self._generator_main_thread.stop()
             self._consumer_main_thread.stop()
 
             for thread in self._transform_rpc_executor.threads:
@@ -872,31 +877,32 @@ class Link:
                         level='debug')
 
     def _launch_tasks(self):
-        # Kafka producer
-        producer_kwargs = {'target': self._kafka_producer}
-        self._producer_thread = Thread(target=self._thread_target, kwargs=producer_kwargs)
-        self._producer_thread.start()
-
-        # Transform
-        self._transform_rpc_executor = ThreadPool(self, self._num_rpc_threads)
-        self._transform_main_executor = ThreadPool(self, self._num_main_threads)
-        transform_kwargs = {'target': self._input_handler}
-        self._input_handler_thread = Thread(target=self._thread_target, kwargs=transform_kwargs)
-        self._input_handler_thread.start()
-
-        # Kafka RPC consumer
-        consumer_kwargs = {'target': self._kafka_rpc_consumer}
-        self._consumer_rpc_thread = Thread(target=self._thread_target, kwargs=consumer_kwargs)
-        self._consumer_rpc_thread.start()
-
         # Generator
         self._generator_main_thread = Thread(target=self._loop_thread_target, kwargs={'target': self.generator})
         self._generator_main_thread.start()
 
-        # Kafka main consumer
-        self._set_input_topic_assignments()
-        self._consumer_main_thread = Thread(target=self._thread_target, kwargs={'target': self._kafka_main_consumer})
-        self._consumer_main_thread.start()
+        if self._kafka_endpoint:
+            # Kafka producer
+            producer_kwargs = {'target': self._kafka_producer}
+            self._producer_thread = Thread(target=self._thread_target, kwargs=producer_kwargs)
+            self._producer_thread.start()
+
+            # Transform
+            self._transform_rpc_executor = ThreadPool(self, self._num_rpc_threads)
+            self._transform_main_executor = ThreadPool(self, self._num_main_threads)
+            transform_kwargs = {'target': self._input_handler}
+            self._input_handler_thread = Thread(target=self._thread_target, kwargs=transform_kwargs)
+            self._input_handler_thread.start()
+
+            # Kafka RPC consumer
+            consumer_kwargs = {'target': self._kafka_rpc_consumer}
+            self._consumer_rpc_thread = Thread(target=self._thread_target, kwargs=consumer_kwargs)
+            self._consumer_rpc_thread.start()
+
+            # Kafka main consumer
+            self._set_input_topic_assignments()
+            self._consumer_main_thread = Thread(target=self._thread_target, kwargs={'target': self._kafka_main_consumer})
+            self._consumer_main_thread.start()
 
     def _set_log_level(self, log_level):
         if not hasattr(self, '_log_level'):
