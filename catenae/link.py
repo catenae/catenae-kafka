@@ -864,7 +864,7 @@ class Link:
         self.logger.log(f'[RPC] listening on: {subscription}')
 
         while not current_thread().will_stop:
-            message = consumer.poll(5)
+            message = consumer.poll(Link.TIMEOUT)
 
             if not message or (not message.key() and not message.value()):
                 if not self._break_consumer_loop(subscription):
