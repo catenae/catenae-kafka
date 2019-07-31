@@ -273,7 +273,7 @@ class Link:
                                 level='exception')
 
     @suicide_on_error
-    def _setup_signal_handlers(self):
+    def _setup_signals_handler(self):
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGQUIT, self._signal_handler)
@@ -1103,15 +1103,14 @@ class Link:
                 self._changed_input_topics = True
                 self.logger.log(f'removed input {input_topic}')
 
-    def start(self):
+    def start(self, embedded=False):
         if self._launched:
             return
-
-        self._set_connectors()
 
         if self._kafka_endpoint:
             self._set_kafka_common_properties()
             self._setup_kafka_producers()
+        self._set_connectors()
 
         # Overwritable by a link
         self.setup()
@@ -1120,17 +1119,21 @@ class Link:
         self._launch_tasks()
         self._launched = True
 
-        if self._kafka_endpoint:
-            self._report_existence()
+        if embedded:
+            Thread(target=self._main_thread).start()
+        else:
+            self._setup_signals_handler()
+            self._main_thread()
 
-        self._setup_signal_handlers()
-
+    def _main_thread(self):
         for thread in self._safe_stop_loop_threads:
             self._join_if_not_current_thread(thread)
 
         if self._kafka_endpoint:
-            self.logger.log(f'link {self._uid} is running')
+            self._report_existence()
 
+            self.logger.log(f'link {self._uid} is running')
+        
             self._producer_thread.join()
             self._input_handler_thread.join()
             self._consumer_rpc_thread.join()
