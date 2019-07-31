@@ -195,7 +195,7 @@ class Link:
         if isinstance(output_content, Electron):
             if topic:
                 output_content.topic = topic
-            electron = output_content.deepcopy()
+            electron = output_content.copy()
         elif not isinstance(output_content, list):
             electron = Electron(value=output_content, topic=topic, unpack_if_string=True)
         else:
