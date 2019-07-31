@@ -485,8 +485,14 @@ class Link:
     @suicide_on_error
     def rpc_call(self, to='broadcast', method=None, args=None, kwargs=None):
         """ 
-        Send a Kafka message which will be interpreted as an RPC call by the receiver module.
+        Send a Kafka message which will be interpreted as a RPC call by the receiver module.
         """
+        if args is None:
+            args = []
+
+        if kwargs is None:
+            kwargs = {}
+
         if not method:
             raise ValueError
         topic = f'catenae_rpc_{to.lower()}'
@@ -518,26 +524,12 @@ class Link:
 
         try:
             context = electron.value['context']
-            context.update({'topic': electron.previous_topic})
+            self.logger.log(f"RPC invocation from {context['uid']} ({context['group']})",
+                            level='debug')
 
-            self.logger.log(
-                f"RPC invocation from {electron.value['context']['uid']} ({electron.value['context']['group']})",
-                level='debug')
-
-            if electron.value['kwargs']:
-                kwargs = electron.value['kwargs']
-                kwargs.update({'context': context})
-                getattr(self, method)(**kwargs)
-
-            else:
-                args = electron.value['args']
-                if not args:
-                    args = [context]
-                elif not isinstance(args, list):
-                    args = [context, args]
-                else:
-                    args = [context] + args
-                getattr(self, method)(*args)
+            args = [context] + electron.value['args']
+            kwargs = electron.value['kwargs']
+            getattr(self, electron.value['method'])(*args, **kwargs)
 
         except Exception:
             self.logger.log(f'error when invoking {method} remotely', level='exception')
@@ -688,13 +680,11 @@ class Link:
 
             self.logger.log('electron produced', level='debug')
 
-        except Exception:
-            self.suicide('Kafka producer error', exception=True)
-
-        # Synchronous
-        if synchronous:
             for callback in electron.callbacks:
                 callback.execute()
+
+        except Exception:
+            self.suicide('Kafka producer error', exception=True)
 
     @suicide_on_error
     def _transform(self, electron, commit_callback):
@@ -996,7 +986,7 @@ class Link:
                 # Dump the buffer before changing the subscription
                 for message in message_buffer:
                     self._input_messages.put(message)
-        
+
         # TODO close also with suicide_on_error
         consumer.close()
 
@@ -1133,7 +1123,7 @@ class Link:
             self._report_existence()
 
             self.logger.log(f'link {self._uid} is running')
-        
+
             self._producer_thread.join()
             self._input_handler_thread.join()
             self._consumer_rpc_thread.join()
@@ -1299,7 +1289,7 @@ class Link:
             'acks': 'all',
             'max.in.flight.requests.per.connection': 1,
             'batch.num.messages': 1,
-            'enable.idempotence': True
+            'enable.idempotence': True,
         })
 
     @suicide_on_error
