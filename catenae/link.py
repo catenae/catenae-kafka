@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-#          xxx            xx     xxxxxxxxxxxxxxxxxx     xxx         xxx       xxx           xx               xxx
-#        xxx             xxxx            xx           xxx           xxxx      xxx          xxxx            xxx
-#      xxx             xxx  xxx          xx         xxx             xxxxx     xxx        xxx  xxx        xxx
-#    xxx              xxx    xxx         xx       xxx               xxx xxx   xxx       xxx    xxx     xxx
-#  xxx               xxx      xxx        xx     xxxxxxxxxxxxxxxxxx  xxx  xxx  xxx      xxx      xxx   xxxxxxxxxxxxxxxxxx
-#    xxx            xxx        xxx       xx       xxx               xxx    xx xxx     xxx        xxx    xxx
-#      xxx         xxx          xxx      xx         xxx             xxx     xxxxx    xxx          xxx     xxx
-#        xxx      xxx            xxx     xx           xxx           xxx      xxxx   xxx            xxx      xxx
-#          xxx   xxx              xxx    xx             xxx         xxx       xxx  xxx              xxx       xxx
+#          ◼◼◼            ◼◼     ◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼     ◼◼◼         ◼◼◼       ◼◼◼           ◼◼                ◼◼◼
+#        ◼◼◼             ◼◼◼◼            ◼◼           ◼◼◼           ◼◼◼◼      ◼◼◼          ◼◼◼◼             ◼◼◼
+#      ◼◼◼             ◼◼◼  ◼◼◼          ◼◼         ◼◼◼             ◼◼◼◼◼     ◼◼◼        ◼◼◼  ◼◼◼         ◼◼◼
+#    ◼◼◼              ◼◼◼    ◼◼◼         ◼◼       ◼◼◼               ◼◼◼ ◼◼◼   ◼◼◼       ◼◼◼    ◼◼◼      ◼◼◼
+#  ◼◼◼               ◼◼◼      ◼◼◼        ◼◼     ◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼  ◼◼◼  ◼◼◼  ◼◼◼      ◼◼◼      ◼◼◼   ◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼
+#    ◼◼◼            ◼◼◼        ◼◼◼       ◼◼       ◼◼◼               ◼◼◼    ◼◼ ◼◼◼     ◼◼◼        ◼◼◼    ◼◼◼
+#      ◼◼◼         ◼◼◼          ◼◼◼      ◼◼         ◼◼◼             ◼◼◼     ◼◼◼◼◼    ◼◼◼          ◼◼◼     ◼◼◼
+#        ◼◼◼      ◼◼◼            ◼◼◼     ◼◼           ◼◼◼           ◼◼◼      ◼◼◼◼   ◼◼◼            ◼◼◼      ◼◼◼
+#          ◼◼◼   ◼◼◼              ◼◼◼    ◼◼             ◼◼◼         ◼◼◼       ◼◼◼  ◼◼◼              ◼◼◼       ◼◼◼
 #
 # Catenae 2.0.0 Beryllium
 # Copyright (C) 2017-2019 Rodrigo Martínez Castaño
@@ -548,6 +548,9 @@ class Link:
         while not self._launched:
             time.sleep(Link.TIMEOUT)
 
+        for thread in self._safe_stop_loop_threads:
+            thread.stop()
+
         if self._kafka_endpoint:
             self.logger.log('stopping threads...')
 
@@ -560,9 +563,6 @@ class Link:
                 thread.stop()
 
             for thread in self._transform_main_executor.threads:
-                thread.stop()
-
-            for thread in self._safe_stop_loop_threads:
                 thread.stop()
 
         # Kill the thread that invoked the suicide method
@@ -1062,13 +1062,18 @@ class Link:
         except Exception:
             self.suicide('Exception during the execution of "setup"', exception=True)
 
+        self.logger.log(f'link {self._uid} is starting...')
+        self._launch_tasks()
+
         if self._kafka_endpoint:
-            self.logger.log(f'link {self._uid} is starting...')
-            self._launch_tasks()
             self._report_existence()
+
         self._launched = True
 
         self._setup_signal_handlers()
+
+        for thread in self._safe_stop_loop_threads:
+            self._join_if_not_current_thread(thread)
 
         if self._kafka_endpoint:
             self.logger.log(f'link {self._uid} is running')
@@ -1082,9 +1087,6 @@ class Link:
                 self._join_if_not_current_thread(thread)
 
             for thread in self._transform_main_executor.threads:
-                self._join_if_not_current_thread(thread)
-
-            for thread in self._safe_stop_loop_threads:
                 self._join_if_not_current_thread(thread)
 
             self.logger.log(f'link {self.uid} stopped')
@@ -1108,41 +1110,43 @@ class Link:
     @suicide_on_error
     def _launch_tasks(self):
 
-        # Kafka RPC consumer
-        consumer_kwargs = {'target': self._kafka_consumer_rpc}
-        self._consumer_rpc_thread = Thread(target=self._thread_target, kwargs=consumer_kwargs)
-        self._consumer_rpc_thread.start()
-
-        # Kafka main consumer
-        self._set_input_topic_assignments()
-        self._consumer_main_thread = Thread(target=self._thread_target, kwargs={'target': self._kafka_consumer_main})
-        self._consumer_main_thread.start()
-
-        # Kafka producer
-        producer_kwargs = {'target': self._kafka_producer}
-        self._producer_thread = Thread(target=self._thread_target, kwargs=producer_kwargs)
-        self._producer_thread.start()
-
-        # Transform
-        self._transform_rpc_executor = ThreadPool(self, self._num_rpc_threads)
-        self._transform_main_executor = ThreadPool(self, self._num_main_threads)
-        transform_kwargs = {'target': self._input_handler}
-        self._input_handler_thread = Thread(target=self._thread_target, kwargs=transform_kwargs)
-        self._input_handler_thread.start()
-
-        # Unavailable instances monitor
-        self.loop(self._check_instances, interval=Link.CHECK_INSTANCES_INTERVAL, safe_stop=True)
-
         # Generator
         self.loop(self.generator, interval=0, safe_stop=True)
-
-        # RPC requests thread
-        self.loop(self._rpc_request_monitor, interval=Link.TIMEOUT)
 
         # JSON-RPC
         self._jsonrpc_process = Process(target=JsonRPC(self._jsonrpc_conn2, self.logger).run)
         self._jsonrpc_process.daemon = True
         self._jsonrpc_process.start()
+
+        if self._kafka_endpoint:
+            # Kafka RPC consumer
+            consumer_kwargs = {'target': self._kafka_consumer_rpc}
+            self._consumer_rpc_thread = Thread(target=self._thread_target, kwargs=consumer_kwargs)
+            self._consumer_rpc_thread.start()
+
+            # Kafka main consumer
+            self._set_input_topic_assignments()
+            self._consumer_main_thread = Thread(target=self._thread_target, kwargs={'target': self._kafka_consumer_main})
+            self._consumer_main_thread.start()
+
+            # Kafka producer
+            producer_kwargs = {'target': self._kafka_producer}
+            self._producer_thread = Thread(target=self._thread_target, kwargs=producer_kwargs)
+            self._producer_thread.start()
+
+            # Transform
+            self._transform_rpc_executor = ThreadPool(self, self._num_rpc_threads)
+            self._transform_main_executor = ThreadPool(self, self._num_main_threads)
+            transform_kwargs = {'target': self._input_handler}
+            self._input_handler_thread = Thread(target=self._thread_target, kwargs=transform_kwargs)
+            self._input_handler_thread.start()
+
+            # Unavailable instances monitor
+            self.loop(self._check_instances, interval=Link.CHECK_INSTANCES_INTERVAL, safe_stop=True)
+
+            # RPC requests thread
+            self.loop(self._rpc_request_monitor, interval=Link.TIMEOUT)
+
 
     @suicide_on_error
     def _report_existence(self):
