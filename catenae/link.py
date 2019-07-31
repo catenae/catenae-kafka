@@ -548,6 +548,8 @@ class Link:
             self._rpc_lock.release()
 
     def suicide(self, message=None, exception=False):
+        self.finish()
+
         if message is None:
             message = '[SUICIDE]'
         else:
@@ -1027,6 +1029,9 @@ class Link:
     def transform(self, _):
         for thread in self._transform_main_executor.threads:
             thread.stop()
+
+    def finish(self):
+        pass
 
     @suicide_on_error
     def send(self,
