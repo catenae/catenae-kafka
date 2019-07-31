@@ -548,12 +548,12 @@ class Link:
         while not self._launched:
             time.sleep(Link.TIMEOUT)
 
+        self.logger.log('stopping threads...')
+
         for thread in self._safe_stop_loop_threads:
             thread.stop()
 
         if self._kafka_endpoint:
-            self.logger.log('stopping threads...')
-
             self._producer_thread.stop()
             self._input_handler_thread.stop()
             self._consumer_rpc_thread.stop()
@@ -966,6 +966,7 @@ class Link:
 
         return (index_assignment / aggregated_value) * window_size
 
+    @suicide_on_error
     def setup(self):
         pass
 
@@ -1051,24 +1052,21 @@ class Link:
         if self._launched:
             return
 
+        self._set_connectors()
+
         if self._kafka_endpoint:
             self._set_kafka_common_properties()
             self._setup_kafka_producers()
-        self._set_connectors()
 
         # Overwritable by a link
-        try:
-            self.setup()
-        except Exception:
-            self.suicide('Exception during the execution of "setup"', exception=True)
+        self.setup()
 
         self.logger.log(f'link {self._uid} is starting...')
         self._launch_tasks()
+        self._launched = True
 
         if self._kafka_endpoint:
             self._report_existence()
-
-        self._launched = True
 
         self._setup_signal_handlers()
 
