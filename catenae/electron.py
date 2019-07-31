@@ -11,7 +11,8 @@ class Electron:
                  topic=None,
                  previous_topic=None,
                  unpack_if_string=False,
-                 callbacks=None):
+                 callbacks=None,
+                 timestamp=None):
         self.key = key
         self.value = value
         self.topic = topic  # Destination topic
@@ -21,6 +22,7 @@ class Electron:
             self.callbacks = []
         else:
             self.callbacks = callbacks
+        self.timestamp = timestamp
 
     def __bool__(self):
         if self.value != None:
@@ -33,6 +35,7 @@ class Electron:
         copy.previous_topic = None
         copy.unpack_if_string = False
         copy.callbacks = []
+        copy.timestamp = None
         return copy
 
     def copy(self):
@@ -43,4 +46,5 @@ class Electron:
         electron.previous_topic = self.previous_topic
         electron.unpack_if_string = self.unpack_if_string
         electron.callbacks = self.callbacks
+        electron.timestamp = self.timestamp
         return electron

@@ -608,6 +608,10 @@ class Link:
                 electron = Electron(value=message.value().decode('utf-8'))
             except Exception:
                 electron = pickle.loads(message.value())
+            
+            # Add the message timestamp
+            message_timestamp = message.timestamp()[1]
+            electron.timestamp = message_timestamp
 
             # Clean the previous topic
             electron.previous_topic = message.topic()
