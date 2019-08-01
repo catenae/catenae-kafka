@@ -100,6 +100,7 @@ class Link:
         self._changed_input_topics = False
 
     TIMEOUT = 0.5
+    COMMIT_ATTEMPTS = 30
 
     @property
     def input_topics(self):
@@ -649,21 +650,22 @@ class Link:
     def _commit_kafka_message(self, consumer, message):
         commited = False
         attempts = 0
-        self.logger.log(f'trying to commit the message with value {message.value()} (attempt {attempts})',
-                        level='debug')
+        self.logger.log(f'trying to commit the message {message.value()}', level='debug')
         while not commited:
             if attempts > 1:
-                self.logger.log(f'trying to commit the message with value {message.value()} (attempt {attempts})',
-                                level='warn')
+                self.logger.log(f'trying to commit a message (attempt {attempts}/30)', level='warn')
             try:
                 consumer.commit(message=message, asynchronous=False)
+                commited = True
             except Exception:
-                self.logger.log(f'exception when trying to commit the message with value {message.value()}',
-                                level='exception')
-                continue
-            commited = True
-            attempts += 1
-        self.logger.log(f'Message with value {message.value()} commited', level='debug')
+                self.logger.log(f'could not commit the message {message.value()}', level='exception')
+                attempts += 1
+                if attempts == Link.COMMIT_ATTEMPTS:
+                    self.suicide()
+                else:
+                    time.sleep(1)
+
+        self.logger.log(f'message {message.value()} commited', level='debug')
 
     def _kafka_rpc_consumer(self):
         properties = dict(self._kafka_consumer_synchronous_properties)
@@ -686,9 +688,10 @@ class Link:
 
                 if message.error():
                     # End of partition is not an error
-                    if message.error().code() != KafkaError._PARTITION_EOF:
-                        self.logger.log(str(message.error()), level='error')
-                    continue
+                    if message.error().code() == KafkaError._PARTITION_EOF:
+                        continue
+                    else:
+                        self.suicide(str(message.error()))
 
                 # Commit when the transformation is commited
                 self._input_messages.put((message, self._commit_kafka_message, [consumer, message]))
