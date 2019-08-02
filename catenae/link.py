@@ -375,7 +375,7 @@ class Link:
 
         while not current_thread().will_stop:
             try:
-                self.logger.log(f'new loop iteration ({target.__name__})')
+                self.logger.log(f'new loop iteration ({target.__name__})', level='debug')
                 start_timestamp = utils.get_timestamp()
 
                 if args:
@@ -771,9 +771,10 @@ class Link:
 
                         if message.error():
                             # End of partition is not an error
-                            if message.error().code() != KafkaError._PARTITION_EOF:
-                                self.logger.log(str(message.error()), level='error')
-                            continue
+                            if message.error().code() == KafkaError._PARTITION_EOF:
+                                continue
+                            else:
+                                self.suicide(str(message.error()))
 
                         else:
                             # Synchronous commit
