@@ -76,30 +76,3 @@ class ThreadingQueue(CustomQueue):
 
         if not block:
             raise ThreadingQueue.EmptyError
-
-
-class LinkQueue(ThreadingQueue):
-    def __init__(self, size=0, circular=False, minimum_messages=1, messages_left=None):
-        super().__init__(size, circular)
-        if messages_left is None:
-            messages_left = minimum_messages
-        self._minimum_messages = minimum_messages
-        self._messages_left = messages_left
-
-    @property
-    def minimum_messages(self):
-        return self._minimum_messages
-
-    @property
-    def messages_left(self):
-        return self._messages_left
-
-    def decrement_messages_left(self):
-        self._lock.acquire()
-        self._messages_left -= 1
-        self._lock.release()
-
-    def reset_messages_left(self):
-        self._lock.acquire()
-        self._messages_left = self._minimum_messages
-        self._lock.release()
