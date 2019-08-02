@@ -14,4 +14,4 @@ class MiddleLink(Link):
 
 
 if __name__ == "__main__":
-    MiddleLink(input_mode='exp').start()
+    MiddleLink(input_mode='exp', exp_window_size=60).start()

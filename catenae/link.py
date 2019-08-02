@@ -53,6 +53,7 @@ class Link:
     def __init__(self,
                  log_level='INFO',
                  input_mode='parity',
+                 exp_window_size=900,
                  synchronous=False,
                  sequential=False,
                  uid_consumer_group=False,
@@ -77,7 +78,7 @@ class Link:
         self.logger = Logger(self, self._log_level)
         self.logger.log(f'log level: {self._log_level}')
 
-        self._launched = False
+        self._started = False
         self._stopped = False
         self._input_topics_lock = Lock()
         self._rpc_lock = Lock()
@@ -91,8 +92,8 @@ class Link:
         self._known_message_ids = CircularOrderedSet(50)
 
         self._load_args()
-        self._set_execution_opts(input_mode, synchronous, sequential, num_rpc_threads, num_main_threads, input_topics,
-                                 output_topics, kafka_endpoint, consumer_timeout)
+        self._set_execution_opts(input_mode, exp_window_size, synchronous, sequential, num_rpc_threads,
+                                 num_main_threads, input_topics, output_topics, kafka_endpoint, consumer_timeout)
         self._set_connectors_properties(aerospike_endpoint, mongodb_endpoint)
         self._set_consumer_group(consumer_group, uid_consumer_group)
 
@@ -133,12 +134,10 @@ class Link:
         return self._mongodb
 
     def start(self, embedded=False):
-        self._start_stop_lock.acquire()
-        if self._launched:
-            self._start_stop_lock.release()
-            return
-        self._launched = True
-        self._start_stop_lock.release()
+        with self._start_stop_lock:
+            if self._started:
+                return
+            self._started = True
 
         if self._kafka_endpoint:
             self._set_kafka_common_properties()
@@ -147,33 +146,41 @@ class Link:
 
         try:
             self.setup()
+            self.logger.log(f'link {self._uid} is starting...')
+            self._launch_tasks()
         except Exception:
-            self.logger.log('Exception during the execution of "setup"', level='exception')
-            raise SystemExit
+            try:
+                self.suicide('Exception during the execution of setup()', exception=True)
+            except SystemExit:
+                pass
+        finally:
+            if embedded:
+                Thread(target=self._join_tasks).start()
+            else:
+                self._setup_signals_handler()
+                self._join_tasks()
 
-        self.logger.log(f'link {self._uid} is starting...')
-        self._launch_tasks()
-
-        if embedded:
-            Thread(target=self._main_thread).start()
-        else:
-            self._setup_signals_handler()
-            self._main_thread()
-
-    def _main_thread(self):
+    def _join_tasks(self):
+        if hasattr(self, '_generator_main_thread'):
+            self._generator_main_thread.join()
+        
         if self._kafka_endpoint:
             self.logger.log(f'link {self._uid} is running')
+            if hasattr(self, '_producer_thread'):
+                self._producer_thread.join()
+            if hasattr(self, '_input_handler_thread'):
+                self._input_handler_thread.join()
+            if hasattr(self, '_consumer_rpc_thread'):
+                self._consumer_rpc_thread.join()
+            if hasattr(self, '_consumer_main_thread'):
+                self._consumer_main_thread.join()
 
-            self._producer_thread.join()
-            self._input_handler_thread.join()
-            self._consumer_rpc_thread.join()
-            self._generator_main_thread.join()
-            self._consumer_main_thread.join()
-
-            for i, thread in enumerate(self._transform_rpc_executor.threads):
-                self._join_if_not_current_thread(thread, f'{i} _transform_rpc_executor')
-            for i, thread in enumerate(self._transform_main_executor.threads):
-                self._join_if_not_current_thread(thread, f'{i} _transform_rpc_executor')
+            if hasattr(self, '_transform_rpc_executor'):
+                for i, thread in enumerate(self._transform_rpc_executor.threads):
+                    self._join_if_not_current_thread(thread)
+            if hasattr(self, '_transform_main_executor'):
+                for i, thread in enumerate(self._transform_main_executor.threads):
+                    self._join_if_not_current_thread(thread)
 
             self.logger.log(f'link {self.uid} stopped')
 
@@ -245,12 +252,10 @@ class Link:
                 self.logger.log(f'removed input {input_topic}')
 
     def suicide(self, message=None, exception=False):
-        self._start_stop_lock.acquire()
-        if self._stopped:
-            self._start_stop_lock.release()
-            return
-        self._stopped = True
-        self._start_stop_lock.release()
+        with self._start_stop_lock:
+            if self._stopped:
+                return
+            self._stopped = True
 
         self.finish()
 
@@ -264,22 +269,29 @@ class Link:
         else:
             self.logger.log(message, level='warn')
 
-        while not self._launched:
+        while not self._started:
             time.sleep(Link.TIMEOUT)
 
-        self._generator_main_thread.stop()
+        if hasattr(self, '_generator_main_thread'):
+            self._generator_main_thread.stop()
 
         self.logger.log('stopping threads...')
         if self._kafka_endpoint:
-            self._producer_thread.stop()
-            self._input_handler_thread.stop()
-            self._consumer_rpc_thread.stop()
-            self._consumer_main_thread.stop()
+            if hasattr(self, '_producer_thread'):
+                self._producer_thread.stop()
+            if hasattr(self, '_input_handler_thread'):
+                self._input_handler_thread.stop()
+            if hasattr(self, '_consumer_rpc_thread'):
+                self._consumer_rpc_thread.stop()
+            if hasattr(self, '_consumer_main_thread'):
+                self._consumer_main_thread.stop()
 
-            for thread in self._transform_rpc_executor.threads:
-                thread.stop()
-            for thread in self._transform_main_executor.threads:
-                thread.stop()
+            if hasattr(self, '_transform_rpc_executor'):
+                for thread in self._transform_rpc_executor.threads:
+                    thread.stop()
+            if hasattr(self, '_transform_main_executor'):
+                for thread in self._transform_main_executor.threads:
+                    thread.stop()
 
         # Kill the thread that invoked the suicide method
         raise SystemExit
@@ -308,12 +320,17 @@ class Link:
         process.start()
         return process
 
-    def _set_execution_opts(self, input_mode, synchronous, sequential, num_rpc_threads, num_main_threads, input_topics,
-                            output_topics, kafka_endpoint, consumer_timeout):
+    def _set_execution_opts(self, input_mode, exp_window_size, synchronous, sequential, num_rpc_threads,
+                            num_main_threads, input_topics, output_topics, kafka_endpoint, consumer_timeout):
 
         if not hasattr(self, '_input_mode'):
             self._input_mode = input_mode
         self.logger.log(f'input_mode: {self._input_mode}')
+
+        if not hasattr(self, '_exp_window_size'):
+            self._exp_window_size = exp_window_size
+            if self._input_mode == 'exp':
+                self.logger.log(f'exp_window_size: {self._exp_window_size}')
 
         if hasattr(self, '_synchronous'):
             synchronous = self._synchronous
@@ -440,29 +457,26 @@ class Link:
         self.send(electron, synchronous=True)
 
     def _rpc_call(self, electron, commit_callback):
-        self._rpc_lock.acquire()
+        with self._rpc_lock:
+            if not 'method' in electron.value:
+                self.logger.log(f'invalid RPC invocation: {electron.value}', level='error')
+                return
 
-        if not 'method' in electron.value:
-            self.logger.log(f'invalid RPC invocation: {electron.value}', level='error')
-            self._rpc_lock.release()
-            return
+            try:
+                context = electron.value['context']
+                self.logger.log(f"RPC invocation from {context['uid']} ({context['group']})", level='debug')
 
-        try:
-            context = electron.value['context']
-            self.logger.log(f"RPC invocation from {context['uid']} ({context['group']})", level='debug')
+                args = [context] + electron.value['args']
+                kwargs = electron.value['kwargs']
+                getattr(self, electron.value['method'])(*args, **kwargs)
 
-            args = [context] + electron.value['args']
-            kwargs = electron.value['kwargs']
-            getattr(self, electron.value['method'])(*args, **kwargs)
+            except Exception:
+                self.logger.log(f'error when invoking {method} remotely', level='exception')
 
-        except Exception:
-            self.logger.log(f'error when invoking {method} remotely', level='exception')
+            finally:
+                commit_callback.execute()
 
-        finally:
-            commit_callback.execute()
-            self._rpc_lock.release()
-
-    def _join_if_not_current_thread(self, thread, name):
+    def _join_if_not_current_thread(self, thread):
         if thread is not current_thread():
             thread.join()
 
@@ -532,63 +546,61 @@ class Link:
             self.suicide('Kafka producer error', exception=True)
 
     def _transform(self, electron, commit_callback):
-        self._rpc_lock.acquire()
-        try:
-            transform_result = self.transform(electron)
-            self.logger.log('electron transformed', level='debug')
-        except Exception:
-            self.suicide('exception during the execution of "transform"', exception=True)
-        finally:
-            self._rpc_lock.release()
+        with self._rpc_lock:
+            try:
+                transform_result = self.transform(electron)
+                self.logger.log('electron transformed', level='debug')
+            except Exception:
+                self.suicide('exception during the execution of "transform"', exception=True)
 
-        transform_callback = Callback()
+            transform_callback = Callback()
 
-        if not isinstance(transform_result, tuple):
-            electrons = transform_result
-        else:
-            electrons = transform_result[0]
-            if len(transform_result) > 1:
-                transform_callback.target = transform_result[1]
-                if len(transform_result) > 2:
-                    if isinstance(transform_result[2], dict):
-                        transform_callback.kwargs = transform_result[2]
+            if not isinstance(transform_result, tuple):
+                electrons = transform_result
+            else:
+                electrons = transform_result[0]
+                if len(transform_result) > 1:
+                    transform_callback.target = transform_result[1]
+                    if len(transform_result) > 2:
+                        if isinstance(transform_result[2], dict):
+                            transform_callback.kwargs = transform_result[2]
+                        else:
+                            transform_callback.args = transform_result[2]
+
+            # Transform returns None
+            if electrons is None:
+                if transform_callback:
+                    transform_callback.execute()
+                if commit_callback:
+                    commit_callback.execute()
+                return
+
+            # Already a list
+            if isinstance(electrons, list):
+                real_electrons = []
+                for electron in electrons:
+                    if isinstance(electron, Electron):
+                        real_electrons.append(electron)
                     else:
-                        transform_callback.args = transform_result[2]
-
-        # Transform returns None
-        if electrons is None:
-            if transform_callback:
-                transform_callback.execute()
-            if commit_callback:
-                commit_callback.execute()
-            return
-
-        # Already a list
-        if isinstance(electrons, list):
-            real_electrons = []
-            for electron in electrons:
-                if isinstance(electron, Electron):
-                    real_electrons.append(electron)
+                        real_electrons.append(Electron(value=electron, unpack_if_string=True))
+                electrons = real_electrons
+            else:  # If there is only one item, convert it to a list
+                if isinstance(electrons, Electron):
+                    electrons = [electrons]
                 else:
-                    real_electrons.append(Electron(value=electron, unpack_if_string=True))
-            electrons = real_electrons
-        else:  # If there is only one item, convert it to a list
-            if isinstance(electrons, Electron):
-                electrons = [electrons]
-            else:
-                electrons = [Electron(value=electrons)]
+                    electrons = [Electron(value=electrons)]
 
-        # Execute transform_callback only for the last electron
-        if transform_callback:
-            electrons[-1].callbacks.append(transform_callback)
-        if commit_callback:
-            electrons[-1].callbacks.append(commit_callback)
+            # Execute transform_callback only for the last electron
+            if transform_callback:
+                electrons[-1].callbacks.append(transform_callback)
+            if commit_callback:
+                electrons[-1].callbacks.append(commit_callback)
 
-        for electron in electrons:
-            if self._synchronous:
-                self._produce(electron)
-            else:
-                self._output_messages.put(electron)
+            for electron in electrons:
+                if self._synchronous:
+                    self._produce(electron)
+                else:
+                    self._output_messages.put(electron)
 
     def _input_handler(self):
         while not current_thread().will_stop:
@@ -733,10 +745,12 @@ class Link:
                 time.sleep(Link.TIMEOUT)
                 continue
 
-            self._set_input_topic_assignments()
-            current_input_topic_assignments = dict(self._input_topic_assignments)
+            with self._input_topics_lock:
+                self._set_input_topic_assignments()
+                current_input_topic_assignments = dict(self._input_topic_assignments)
 
             for topic in current_input_topic_assignments.keys():
+
                 with self._input_topics_lock:
                     if self._changed_input_topics:
                         self._changed_input_topics = False
@@ -757,11 +771,15 @@ class Link:
                     start_time = utils.get_timestamp_ms()
                     assigned_time = current_input_topic_assignments[topic]
                     restarted_time = False
-                    while (assigned_time == -1 or self._on_time(start_time, assigned_time)) \
+                    while (assigned_time == -1 \
+                           or assigned_time == self._exp_window_size \
+                           or self._on_time(start_time, assigned_time)) \
                     and not current_thread().will_stop:
 
-                        # Subscribe to the topics again if input topics have changed
                         with self._input_topics_lock:
+                            assigned_time = current_input_topic_assignments[topic]
+
+                            # Subscribe to the topics again if input topics have changed
                             if self._changed_input_topics:
                                 # _changed_input_topics is set to False in the
                                 # outer loop so both loops are broken
@@ -814,7 +832,7 @@ class Link:
     def _on_time(self, start_time, assigned_time):
         return (utils.get_timestamp_ms() - start_time) < 1000 * assigned_time
 
-    def _get_index_assignment(self, window_size, index, elements_no, base=1.7):
+    def _get_index_assignment(self, index, elements_no, base=1.7):
         """
         window_size implies a full cycle consuming all the queues with
         priority.
@@ -830,7 +848,7 @@ class Link:
                 index_assignment = value
             aggregated_value += value
 
-        return (index_assignment / aggregated_value) * window_size
+        return (index_assignment / aggregated_value) * self._exp_window_size
 
     def _thread_target(self, target, args=None, kwargs=None):
         try:
@@ -978,12 +996,11 @@ class Link:
             if len(self._input_topics[0]) == 1:
                 self._input_topic_assignments[self._input_topics[0]] = -1
 
-            window_size = 60  # in seconds, 15 minutes
             topics_no = len(self._input_topics)
             self.logger.log('input topics time assingments:', level='debug')
             for index, topic in enumerate(self._input_topics):
                 topic_assingment = \
-                    self._get_index_assignment(window_size, index, topics_no)
+                    self._get_index_assignment(index, topics_no)
                 self._input_topic_assignments[topic] = topic_assingment
                 self.logger.log(f' * {topic}: {topic_assingment} seconds', level='debug')
 
@@ -1015,6 +1032,11 @@ class Link:
                             action="store",
                             dest="input_mode",
                             help='Link input mode [parity|exp].',
+                            required=False)
+        parser.add_argument('--exp-window-size',
+                            action="store",
+                            dest="exp_window_size",
+                            help='Consumption window size in seconds for exp mode.',
                             required=False)
         parser.add_argument('--sync',
                             action="store_true",
@@ -1101,6 +1123,8 @@ class Link:
             self._log_level = args.log_level
         if args.input_mode:
             self._input_mode = args.input_mode
+        if args.exp_window_size:
+            self._exp_window_size = args.exp_window_size
         if args.synchronous:
             self._synchronous = True
         if args.sequential:
