@@ -15,6 +15,7 @@ class SourceLink(Link):
             assert result == 20
 
         except KeyError:
+            self.logger.log('MiddleLink not yet available')
             pass
 
         except errors.RPCError:

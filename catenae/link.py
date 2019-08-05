@@ -46,7 +46,7 @@ from . import errors
 from .electron import Electron
 from .callback import Callback
 from .logger import Logger
-from .custom_queue import LinkQueue
+from .custom_queue import ThreadingQueue
 from .custom_threading import Thread, ThreadPool
 from .custom_multiprocessing import Process
 from .connectors.aerospike import AerospikeConnector
@@ -83,10 +83,12 @@ class Link:
     TIMEOUT = 0.5
     CHECK_INSTANCES_INTERVAL = 5
     INSTANCE_TIMEOUT = 3
+    COMMIT_ATTEMPTS = 30
 
     def __init__(self,
                  log_level='INFO',
                  input_mode='parity',
+                 exp_window_size=900,
                  synchronous=False,
                  sequential=False,
                  uid_consumer_group=False,
@@ -113,9 +115,11 @@ class Link:
 
         self.logger.log(f'RPC-enabled methods: {_rpc_enabled_methods}')
 
-        self._launched = False
+        self._started = False
+        self._stopped = False
         self._input_topics_lock = Lock()
         self._rpc_lock = Lock()
+        self._start_stop_lock = Lock()
 
         # RPC topics
         self._rpc_instance_topic = f'catenae_rpc_{self._uid}'
@@ -127,14 +131,14 @@ class Link:
         self._known_message_ids = CircularOrderedSet(50)
 
         self._load_args()
-        self._set_execution_opts(input_mode, synchronous, sequential, num_rpc_threads,
-                                 num_main_threads, input_topics, output_topics, kafka_endpoint,
-                                 consumer_timeout)
+        self._set_execution_opts(input_mode, exp_window_size, synchronous, sequential,
+                                 num_rpc_threads, num_main_threads, input_topics, output_topics,
+                                 kafka_endpoint, consumer_timeout)
         self._set_connectors_properties(aerospike_endpoint, mongodb_endpoint)
         self._set_consumer_group(consumer_group, uid_consumer_group)
 
-        self._input_messages = LinkQueue()
-        self._output_messages = LinkQueue()
+        self._input_messages = ThreadingQueue()
+        self._output_messages = ThreadingQueue()
         self._jsonrpc_conn1, self._jsonrpc_conn2 = Pipe()
         self._changed_input_topics = False
 
@@ -158,13 +162,18 @@ class Link:
             self.logger.log(f'mongodb_port: {self._mongodb_port}')
 
     @suicide_on_error
-    def _set_execution_opts(self, input_mode, synchronous, sequential, num_rpc_threads,
-                            num_main_threads, input_topics, output_topics, kafka_endpoint,
-                            consumer_timeout):
+    def _set_execution_opts(self, input_mode, exp_window_size, synchronous, sequential,
+                            num_rpc_threads, num_main_threads, input_topics, output_topics,
+                            kafka_endpoint, consumer_timeout):
 
         if not hasattr(self, '_input_mode'):
             self._input_mode = input_mode
         self.logger.log(f'input_mode: {self._input_mode}')
+
+        if not hasattr(self, '_exp_window_size'):
+            self._exp_window_size = exp_window_size
+            if self._input_mode == 'exp':
+                self.logger.log(f'exp_window_size: {self._exp_window_size}')
 
         if hasattr(self, '_synchronous'):
             synchronous = self._synchronous
@@ -252,17 +261,18 @@ class Link:
         if wait:
             time.sleep(interval)
 
+        if args is None:
+            args = []
+
+        if kwargs is None:
+            kwargs = {}
+
         while not current_thread().will_stop:
             try:
                 self.logger.log(f'new loop iteration ({target.__name__})', level=level)
                 start_timestamp = utils.get_timestamp()
 
-                if args:
-                    target(*args)
-                elif kwargs:
-                    target(**kwargs)
-                else:
-                    target()
+                target(*args, **kwargs)
 
                 sleep_seconds = interval - utils.get_timestamp() + start_timestamp
                 if sleep_seconds > 0:
@@ -305,31 +315,25 @@ class Link:
 
     @suicide_on_error
     def _delete_from_store(self, uid, group):
-        self._instances_store_lock.acquire()
-
-        if uid in self._instances_store['by_uid']:
-            del self._instances_store['by_uid'][uid]
-            self._instances_store['by_group'][group].remove(uid)
-
-        self._instances_store_lock.release()
+        with self._instances_store_lock:
+            if uid in self._instances_store['by_uid']:
+                del self._instances_store['by_uid'][uid]
+                self._instances_store['by_group'][group].remove(uid)
 
     @suicide_on_error
     def _add_to_store(self, uid, group, host, port, scheme):
-        self._instances_store_lock.acquire()
+        with self._instances_store_lock:
+            self._instances_store['by_uid'][uid] = {
+                'host': host,
+                'port': port,
+                'scheme': scheme,
+                'group': group
+            }
+            if not group in self._instances_store['by_group']:
+                self._instances_store['by_group'][group] = list()
 
-        self._instances_store['by_uid'][uid] = {
-            'host': host,
-            'port': port,
-            'scheme': scheme,
-            'group': group
-        }
-        if not group in self._instances_store['by_group']:
-            self._instances_store['by_group'][group] = list()
-
-        if uid not in self._instances_store['by_group'][group]:
-            self._instances_store['by_group'][group].append(uid)
-
-        self._instances_store_lock.release()
+            if uid not in self._instances_store['by_group'][group]:
+                self._instances_store['by_group'][group].append(uid)
 
     @suicide_on_error
     def _rpc_request_monitor(self):
@@ -337,9 +341,8 @@ class Link:
         if not new_data:
             return
 
-        self._rpc_lock.acquire()
-        is_notification, request = self._jsonrpc_conn1.recv()
-        self._rpc_lock.release()
+        with self._rpc_lock:
+            is_notification, request = self._jsonrpc_conn1.recv()
 
         response = dict()
         error_code = None
@@ -456,10 +459,9 @@ class Link:
 
     @property
     def instances_store(self):
-        self._instances_store_lock.acquire()
-        instances_store = dict(self._instances_store)
-        self._instances_store_lock.release()
-        return instances_store
+        with self._instances_store_lock:
+            instances_store = dict(self._instances_store)
+            return instances_store
 
     @rpc
     def get_instances_store(self):
@@ -515,30 +517,32 @@ class Link:
             self.logger.log(f'method {method} cannot be called', level='error')
             return
 
-        self._rpc_lock.acquire()
+        with self._rpc_lock:
+            if not 'method' in electron.value:
+                self.logger.log(f'invalid RPC invocation: {electron.value}', level='error')
+                return
 
-        if not 'method' in electron.value:
-            self.logger.log(f'invalid RPC invocation: {electron.value}', level='error')
-            self._rpc_lock.release()
-            return
+            try:
+                context = electron.value['context']
+                self.logger.log(f"RPC invocation from {context['uid']} ({context['group']})",
+                                level='debug')
 
-        try:
-            context = electron.value['context']
-            self.logger.log(f"RPC invocation from {context['uid']} ({context['group']})",
-                            level='debug')
+                args = [context] + electron.value['args']
+                kwargs = electron.value['kwargs']
+                getattr(self, electron.value['method'])(*args, **kwargs)
 
-            args = [context] + electron.value['args']
-            kwargs = electron.value['kwargs']
-            getattr(self, electron.value['method'])(*args, **kwargs)
+            except Exception:
+                self.logger.log(f'error when invoking {method} remotely', level='exception')
 
-        except Exception:
-            self.logger.log(f'error when invoking {method} remotely', level='exception')
-
-        finally:
-            commit_callback.execute()
-            self._rpc_lock.release()
+            finally:
+                commit_callback.execute()
 
     def suicide(self, message=None, exception=False):
+        with self._start_stop_lock:
+            if self._stopped:
+                return
+            self._stopped = True
+
         self.finish()
 
         if message is None:
@@ -551,7 +555,7 @@ class Link:
         else:
             self.logger.log(message, level='warn')
 
-        while not self._launched:
+        while not self._started:
             time.sleep(Link.TIMEOUT)
 
         self.logger.log('stopping threads...')
@@ -560,16 +564,21 @@ class Link:
             thread.stop()
 
         if self._kafka_endpoint:
-            self._producer_thread.stop()
-            self._input_handler_thread.stop()
-            self._consumer_rpc_thread.stop()
-            self._consumer_main_thread.stop()
+            if hasattr(self, '_producer_thread'):
+                self._producer_thread.stop()
+            if hasattr(self, '_input_handler_thread'):
+                self._input_handler_thread.stop()
+            if hasattr(self, '_consumer_rpc_thread'):
+                self._consumer_rpc_thread.stop()
+            if hasattr(self, '_consumer_main_thread'):
+                self._consumer_main_thread.stop()
 
-            for thread in self._transform_rpc_executor.threads:
-                thread.stop()
-
-            for thread in self._transform_main_executor.threads:
-                thread.stop()
+            if hasattr(self, '_transform_rpc_executor'):
+                for thread in self._transform_rpc_executor.threads:
+                    thread.stop()
+            if hasattr(self, '_transform_main_executor'):
+                for thread in self._transform_main_executor.threads:
+                    thread.stop()
 
         # Kill the thread that invoked the suicide method
         raise SystemExit
@@ -688,14 +697,12 @@ class Link:
 
     @suicide_on_error
     def _transform(self, electron, commit_callback):
-        self._rpc_lock.acquire()
-        try:
-            transform_result = self.transform(electron)
-            self.logger.log('electron transformed', level='debug')
-        except Exception:
-            self.suicide('exception during the execution of "transform"', exception=True)
-        finally:
-            self._rpc_lock.release()
+        with self._rpc_lock:
+            try:
+                transform_result = self.transform(electron)
+                self.logger.log('electron transformed', level='debug')
+            except Exception:
+                self.suicide('exception during the execution of "transform"', exception=True)
 
         transform_callback = Callback()
 
@@ -824,24 +831,23 @@ class Link:
     def _commit_kafka_message(self, consumer, message):
         commited = False
         attempts = 0
-        self.logger.log(
-            f'trying to commit the message with value {message.value()} (attempt {attempts})',
-            level='debug')
+        self.logger.log(f'trying to commit the message {message.value()}', level='debug')
         while not commited:
             if attempts > 1:
-                self.logger.log(
-                    f'trying to commit the message with value {message.value()} (attempt {attempts})',
-                    level='warn')
+                self.logger.log(f'trying to commit a message (attempt {attempts}/30)', level='warn')
             try:
                 consumer.commit(message=message, asynchronous=False)
+                commited = True
             except Exception:
-                self.logger.log(
-                    f'exception when trying to commit the message with value {message.value()}',
-                    level='exception')
-                continue
-            commited = True
-            attempts += 1
-        self.logger.log(f'Message with value {message.value()} commited', level='debug')
+                self.logger.log(f'could not commit the message {message.value()}',
+                                level='exception')
+                attempts += 1
+                if attempts == Link.COMMIT_ATTEMPTS:
+                    self.suicide()
+                else:
+                    time.sleep(1)
+
+        self.logger.log(f'message {message.value()} commited', level='debug')
 
     @suicide_on_error
     def _kafka_rpc_consumer(self):
@@ -865,9 +871,10 @@ class Link:
 
             if message.error():
                 # End of partition is not an error
-                if message.error().code() != KafkaError._PARTITION_EOF:
-                    self.logger.log(str(message.error()), level='error')
-                continue
+                if message.error().code() == KafkaError._PARTITION_EOF:
+                    continue
+                else:
+                    self.suicide(str(message.error()))
 
             # Commit when the transformation is commited
             self._input_messages.put((message, self._commit_kafka_message, [consumer, message]))
@@ -885,7 +892,6 @@ class Link:
         consumer = Consumer(properties)
         self.logger.log(f'[MAIN] consumer properties: {utils.dump_dict_pretty(properties)}',
                         level='debug')
-        prev_queued_messages = 0
 
         while not current_thread().will_stop:
             if not self._input_topics:
@@ -918,10 +924,16 @@ class Link:
 
                 start_time = utils.get_timestamp_ms()
                 assigned_time = current_input_topic_assignments[topic]
-                while (assigned_time == -1 or self.on_time(start_time, assigned_time)) \
+                restarted_time = False
+                while (assigned_time == -1 \
+                        or assigned_time == self._exp_window_size \
+                        or self._on_time(start_time, assigned_time)) \
                 and not current_thread().will_stop:
-                    # Subscribe to the topics again if input topics have changed
+
                     with self._input_topics_lock:
+                        assigned_time = current_input_topic_assignments[topic]
+
+                        # Subscribe to the topics again if input topics have changed
                         if self._changed_input_topics:
                             # _changed_input_topics is set to False in the
                             # outer loop so both loops are broken
@@ -932,66 +944,42 @@ class Link:
                     if not message or (not message.key() and not message.value()):
                         if not self._break_consumer_loop(subscription):
                             continue
+
                         # New topic / restart if there are more topics or
                         # there aren't assigned partitions
                         break
 
                     if message.error():
                         # End of partition is not an error
-                        if message.error().code() != KafkaError._PARTITION_EOF:
-                            self.logger.log(str(message.error()), level='error')
+                        if message.error().code() == KafkaError._PARTITION_EOF:
+                            if not restarted_time:
+                                start_time = utils.get_timestamp_ms()
+                                restarted_time = True
+                            continue
+                        else:
+                            self.suicide(str(message.error()))
+
+                    # else
+                    if not restarted_time:
+                        start_time = utils.get_timestamp_ms()
+                        restarted_time = True
+
+                    # Synchronous commit
+                    if self._synchronous:
+                        # Commit when the transformation is commited
+                        self._input_messages.put(
+                            (message, self._commit_kafka_message, [consumer, message]))
                         continue
 
-                    else:
-                        # Synchronous commit
-                        if self._synchronous:
-                            # Commit when the transformation is commited
-                            self._input_messages.put(
-                                (message, self._commit_kafka_message, [consumer, message]))
-                            continue
-
-                        # Asynchronous (only one topic)
-                        if len(subscription) == 1 or self._input_mode == 'parity':
-                            self._input_messages.put(message)
-                            continue
-
-                        # Asynchronous (with penalizations support for
-                        # multiple topics)
-
-                        # The message is added to a local list that will be
-                        # dumped to a queue for asynchronous processing
-                        message_buffer.append(message)
-                        current_queued_messages = len(message_buffer)
-
-                        self._input_messages.decrement_messages_left()
-
-                        # If there is only one message left, the offset is
-                        # committed
-                        if self._input_messages.messages_left < 1:
-                            for message in message_buffer:
-                                self._input_messages.put(message)
-                            message_buffer = []
-
-                            self._input_messages.reset_messages_left()
-
-                        # Penalize if only one message was consumed
-                        if not self._break_consumer_loop(subscription) \
-                        and current_queued_messages > 1 \
-                        and current_queued_messages > prev_queued_messages - 2:
-                            self.logger.log(f'penalized topic: {topic}')
-                            break
-
-                        prev_queued_messages = current_queued_messages
-
-                # Dump the buffer before changing the subscription
-                for message in message_buffer:
-                    self._input_messages.put(message)
+                    else:  # Asynchronous
+                        self._input_messages.put(message)
+                        continue
 
         # TODO close also with suicide_on_error
         consumer.close()
 
     @suicide_on_error
-    def _get_index_assignment(self, window_size, index, elements_no, base=1.7):
+    def _get_index_assignment(self, index, elements_no, base=1.7):
         """
         window_size implies a full cycle consuming all the queues with
         priority.
@@ -1007,7 +995,7 @@ class Link:
                 index_assignment = value
             aggregated_value += value
 
-        return (index_assignment / aggregated_value) * window_size
+        return (index_assignment / aggregated_value) * self._exp_window_size
 
     @suicide_on_error
     def setup(self):
@@ -1018,6 +1006,7 @@ class Link:
         for thread in self._transform_main_executor.threads:
             thread.stop()
 
+    @suicide_on_error
     def finish(self):
         pass
 
@@ -1094,46 +1083,57 @@ class Link:
                 self.logger.log(f'removed input {input_topic}')
 
     def start(self, embedded=False):
-        if self._launched:
-            return
+        with self._start_stop_lock:
+            if self._started:
+                return
+            self._started = True
 
         if self._kafka_endpoint:
             self._set_kafka_common_properties()
             self._setup_kafka_producers()
         self._set_connectors()
 
-        # Overwritable by a link
-        self.setup()
+        try:
+            self.setup()
+            self.logger.log(f'link {self._uid} is starting...')
+            self._launch_tasks()
+        except Exception:
+            try:
+                self.suicide('Exception during the execution of setup()', exception=True)
+            except SystemExit:
+                pass
+        finally:
+            if embedded:
+                Thread(target=self._join_tasks).start()
+            else:
+                self._setup_signals_handler()
+                self._join_tasks()
 
-        self.logger.log(f'link {self._uid} is starting...')
-        self._launch_tasks()
-        self._launched = True
+    def _join_tasks(self):
+        if self._kafka_endpoint:
+            self._report_existence()
+            self.logger.log(f'link {self._uid} is running')
 
-        if embedded:
-            Thread(target=self._main_thread).start()
-        else:
-            self._setup_signals_handler()
-            self._main_thread()
-
-    def _main_thread(self):
         for thread in self._safe_stop_loop_threads:
             self._join_if_not_current_thread(thread)
 
         if self._kafka_endpoint:
-            self._report_existence()
+            if hasattr(self, '_producer_thread'):
+                self._producer_thread.join()
+            if hasattr(self, '_input_handler_thread'):
+                self._input_handler_thread.join()
+            if hasattr(self, '_consumer_rpc_thread'):
+                self._consumer_rpc_thread.join()
+            if hasattr(self, '_consumer_main_thread'):
+                self._consumer_main_thread.join()
 
-            self.logger.log(f'link {self._uid} is running')
+            if hasattr(self, '_transform_rpc_executor'):
+                for thread in self._transform_rpc_executor.threads:
+                    self._join_if_not_current_thread(thread)
 
-            self._producer_thread.join()
-            self._input_handler_thread.join()
-            self._consumer_rpc_thread.join()
-            self._consumer_main_thread.join()
-
-            for thread in self._transform_rpc_executor.threads:
-                self._join_if_not_current_thread(thread)
-
-            for thread in self._transform_main_executor.threads:
-                self._join_if_not_current_thread(thread)
+            if hasattr(self, '_transform_main_executor'):
+                for thread in self._transform_main_executor.threads:
+                    self._join_if_not_current_thread(thread)
 
             self.logger.log(f'link {self.uid} stopped')
 
@@ -1158,7 +1158,6 @@ class Link:
 
     @suicide_on_error
     def _launch_tasks(self):
-
         # Generator
         self.loop(self.generator, interval=0, safe_stop=True)
 
@@ -1298,23 +1297,22 @@ class Link:
             self._input_topic_assignments = {-1: -1}
 
         elif self._input_mode == 'exp':
-            self._input_topic_assignments = dict()
+            self._input_topic_assignments = {}
 
             if len(self._input_topics[0]) == 1:
                 self._input_topic_assignments[self._input_topics[0]] = -1
 
-            window_size = 900  # in seconds, 15 minutes
             topics_no = len(self._input_topics)
-            self.logger.log('input topics time assingments:')
+            self.logger.log('input topics time assingments:', level='debug')
             for index, topic in enumerate(self._input_topics):
                 topic_assingment = \
-                    self._get_index_assignment(window_size, index, topics_no)
+                    self._get_index_assignment(index, topics_no)
                 self._input_topic_assignments[topic] = topic_assingment
-                self.logger.log(f' - {topic}: {topic_assingment} seconds')
+                self.logger.log(f' * {topic}: {topic_assingment} seconds', level='debug')
 
     @suicide_on_error
-    def on_time(self, start_time, assigned_time):
-        return (start_time - utils.get_timestamp_ms()) < assigned_time
+    def _on_time(self, start_time, assigned_time):
+        return (utils.get_timestamp_ms() - start_time) < 1000 * assigned_time
 
     @suicide_on_error
     def _parse_aerospike_args(self, parser):
@@ -1424,6 +1422,11 @@ class Link:
                             dest="input_mode",
                             help='Link input mode [parity|exp].',
                             required=False)
+        parser.add_argument('--exp-window-size',
+                            action="store",
+                            dest="exp_window_size",
+                            help='Consumption window size in seconds for exp mode.',
+                            required=False)
         parser.add_argument('--sync',
                             action="store_true",
                             dest="synchronous",
@@ -1456,6 +1459,8 @@ class Link:
             self._log_level = args.log_level
         if args.input_mode:
             self._input_mode = args.input_mode
+        if args.exp_window_size:
+            self._exp_window_size = args.exp_window_size
         if args.synchronous:
             self._synchronous = True
         if args.sequential:
