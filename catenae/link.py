@@ -1103,6 +1103,7 @@ class Link:
             except SystemExit:
                 pass
         finally:
+            self.logger.log(f'link {self._uid} is running')
             if embedded:
                 Thread(target=self._join_tasks).start()
             else:
@@ -1112,7 +1113,6 @@ class Link:
     def _join_tasks(self):
         if self._kafka_endpoint:
             self._report_existence()
-            self.logger.log(f'link {self._uid} is running')
 
         for thread in self._safe_stop_loop_threads:
             self._join_if_not_current_thread(thread)
@@ -1135,7 +1135,7 @@ class Link:
                 for thread in self._transform_main_executor.threads:
                     self._join_if_not_current_thread(thread)
 
-            self.logger.log(f'link {self.uid} stopped')
+        self.logger.log(f'link {self.uid} stopped')
 
     @suicide_on_error
     def _join_if_not_current_thread(self, thread):
