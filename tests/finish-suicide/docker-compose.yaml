@@ -10,4 +10,4 @@ services:
   source_link:
     image: catenae/link:develop
     command: source_link.py
-    working_dir: /opt/catenae/tests/gfinish-suicide
+    working_dir: /opt/catenae/tests/finish-suicide
