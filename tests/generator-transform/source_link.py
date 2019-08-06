@@ -11,11 +11,10 @@ class SourceLink(Link):
         self.message_count = 0
 
     def generator(self):
-        while True:
-            self.message_count += 1
-            self.send(self.message_count)
-            self.logger.log(f'Message "{self.message_count}" sent')
-            time.sleep(1)
+        self.message_count += 1
+        self.send(self.message_count)
+        self.logger.log(f'Message "{self.message_count}" sent')
+        time.sleep(1)
 
 
 if __name__ == "__main__":
