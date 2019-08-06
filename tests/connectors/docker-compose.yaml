@@ -23,7 +23,7 @@ services:
     image: catenae/link:develop
     container_name: aerospike_test
     command: aerospike_test.py
-    working_dir: /opt/catenae/test/connectors
+    working_dir: /opt/catenae/tests/gconnectors
     depends_on:
       - aerospike
 
@@ -31,6 +31,6 @@ services:
     image: catenae/link:develop
     container_name: mongodb_test
     command: mongodb_test.py
-    working_dir: /opt/catenae/test/connectors
+    working_dir: /opt/catenae/tests/gconnectors
     depends_on:
       - mongodb

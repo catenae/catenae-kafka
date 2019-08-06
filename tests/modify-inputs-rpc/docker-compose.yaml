@@ -15,14 +15,14 @@ services:
   source_link:
     image: catenae/link:develop
     command: source_link.py -o input1 -k kafka:9092
-    working_dir: /opt/catenae/test/modify-inputs-rpc
+    working_dir: /opt/catenae/tests/gmodify-inputs-rpc
     depends_on:
       - kafka
 
   middle_link:
     image: catenae/link:develop
     command: middle_link.py -i input1 -k kafka:9092
-    working_dir: /opt/catenae/test/modify-inputs-rpc
+    working_dir: /opt/catenae/tests/gmodify-inputs-rpc
     restart: always
     depends_on:
       - kafka

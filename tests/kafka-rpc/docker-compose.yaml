@@ -1,12 +1,13 @@
-version: "3.4"
+version: '3.4'
 
 x-logging: &default-logging
   options:
-    max-size: "50m"
-    max-file: "1"
+    max-size: '50m'
+    max-file: '1'
   driver: json-file
 
 services:
+
   kafka:
     image: catenae/kafka
     logging: *default-logging
@@ -14,7 +15,7 @@ services:
   source_link:
     image: catenae/link:develop
     command: source_link.py -o input1 -k kafka:9092
-    working_dir: /opt/catenae/test/sync
+    working_dir: /opt/catenae/tests/kafka-rpc
     restart: always
     depends_on:
       - kafka
@@ -22,7 +23,7 @@ services:
   middle_link:
     image: catenae/link:develop
     command: middle_link.py -i input1 -k kafka:9092
-    working_dir: /opt/catenae/test/sync
+    working_dir: /opt/catenae/tests/kafka-rpc
     restart: always
     depends_on:
       - kafka

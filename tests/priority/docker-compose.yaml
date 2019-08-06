@@ -13,15 +13,15 @@ services:
 
   source_link:
     image: catenae/link:develop
-    command: source_link.py -o input1 -k kafka:9092
-    working_dir: /opt/catenae/test/balance
+    command: source_link.py -k kafka:9092
+    working_dir: /opt/catenae/tests/gpriority
     depends_on:
       - kafka
 
   middle_link:
     image: catenae/link:develop
-    command: middle_link.py -i input1 -k kafka:9092
-    working_dir: /opt/catenae/test/balance
+    command: middle_link.py -i input1,input2,input3 -k kafka:9092
+    working_dir: /opt/catenae/tests/gpriority
     depends_on:
       - kafka
     restart: always
