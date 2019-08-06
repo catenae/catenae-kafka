@@ -15,7 +15,7 @@ services:
   source-link:
     image: catenae/link:develop
     command: source_link.py -o input1 -k kafka:9092
-    working_dir: /opt/catenae/test/json-rpc
+    working_dir: /opt/catenae/tests/gjson-rpc
     environment:
       JSONRPC_HOST: source-link
       JSONRPC_PORT: '9393'
@@ -29,7 +29,7 @@ services:
   middle-link:
     image: catenae/link:develop
     command: middle_link.py -i input1 -k kafka:9092
-    working_dir: /opt/catenae/test/json-rpc
+    working_dir: /opt/catenae/tests/gjson-rpc
     environment:
       JSONRPC_HOST: middle-link
       JSONRPC_PORT: '9494'
