@@ -264,6 +264,9 @@ class Link:
         if args is None:
             args = []
 
+        if not isinstance(args, list):
+            args = [args]
+
         if kwargs is None:
             kwargs = {}
 
@@ -491,6 +494,9 @@ class Link:
         """
         if args is None:
             args = []
+
+        if not isinstance(args, list):
+            args = [args]
 
         if kwargs is None:
             kwargs = {}
