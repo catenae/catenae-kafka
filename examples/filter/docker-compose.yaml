@@ -1,0 +1,29 @@
+version: '3.4'
+
+x-logging: &default-logging
+  options:
+    max-size: '50m'
+    max-file: '1'
+  driver: json-file
+
+services:
+
+  kafka:
+    image: catenae/kafka
+    logging: *default-logging
+
+  streamer:
+    image: catenae/link:develop
+    command: streamer.py -o filter_input -k kafka:9092
+    working_dir: /opt/catenae/examples/filter
+    restart: always
+    depends_on:
+      - kafka
+
+  filter:
+    image: catenae/link:develop
+    command: filter.py -i filter_input -k kafka:9092
+    working_dir: /opt/catenae/examples/filter
+    restart: always
+    depends_on:
+      - kafka

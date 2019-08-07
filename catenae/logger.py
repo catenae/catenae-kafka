@@ -11,5 +11,5 @@ class Logger:
 
     def log(self, message='', level='info'):
         if message:
-            message = f'{self.instance.__class__.__name__}: {message}'
+            message = f'{self.instance.__class__.__name__}/{self.instance.uid} → {message}'
         getattr(logging, level.lower(), 'INFO')(message)

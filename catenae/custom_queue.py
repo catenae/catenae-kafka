@@ -1,25 +1,37 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from threading import Lock
+import threading
+import multiprocessing
 import time
 from .utils import get_timestamp
 
 
 class CustomQueue:
-    BLOCK_SECONDS = 0.1
-
-    class EmptyError(Exception):
-        def __init__(self, message=None):
-            if message == None:
-                message = 'The queue is empty'
-            super(CustomQueue.EmptyError, self).__init__(message)
+    BLOCKING_SECONDS = 0.1
 
     def __init__(self, size=0, circular=False):
         self._size = size
         self._circular = circular
+
+    def put(self):
+        pass
+
+    def get(self):
+        pass
+
+    class EmptyError(Exception):
+        def __init__(self, message=None):
+            if message is None:
+                message = 'The queue is empty'
+            super().__init__(message)
+
+
+class ThreadingQueue(CustomQueue):
+    def __init__(self, size=0, circular=False):
+        super().__init__(size, circular)
         self._queue = list()
-        self._lock = Lock()
+        self._lock = threading.Lock()
 
     def _truncate(self):
         if self._size > 0 and len(self._queue) > self._size:
@@ -34,7 +46,7 @@ class CustomQueue:
             return
 
         start_timestamp = get_timestamp()
-        while timeout == None or get_timestamp() - start_timestamp < timeout:
+        while timeout is None or get_timestamp() - start_timestamp < timeout:
             self._lock.acquire()
             if self._size <= 0 or len(self._queue) < self._size:
                 self._queue.append(item)
@@ -42,27 +54,25 @@ class CustomQueue:
                 return
             self._lock.release()
             if not block:
-                raise CustomQueue.EmptyError
-            time.sleep(CustomQueue.BLOCK_SECONDS)
+                raise ThreadingQueue.EmptyError
+            time.sleep(ThreadingQueue.BLOCKING_SECONDS)
 
     def get(self, block=True, timeout=None):
+        if timeout is not None:
+            block = False
+
         start_timestamp = get_timestamp()
-        while timeout == None or get_timestamp() - start_timestamp < timeout:
+        while timeout is None or get_timestamp() - start_timestamp < timeout:
             self._lock.acquire()
             if len(self._queue) > 0:
                 item = self._queue.pop(0)
                 self._lock.release()
                 return item
+
             self._lock.release()
-            if not block:
-                raise CustomQueue.EmptyError
-            time.sleep(CustomQueue.BLOCK_SECONDS)
+            if timeout is None and not block:
+                raise ThreadingQueue.EmptyError
+            time.sleep(ThreadingQueue.BLOCKING_SECONDS)
 
-
-class LinkQueue(CustomQueue):
-    def __init__(self, minimum_messages=1, messages_left=None):
-        if messages_left is None:
-            messages_left = minimum_messages
-        self.minimum_messages = minimum_messages
-        self.messages_left = messages_left
-        super().__init__()
+        if not block:
+            raise ThreadingQueue.EmptyError
