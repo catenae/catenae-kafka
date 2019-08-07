@@ -408,6 +408,9 @@ class Link:
         if kwargs is None:
             kwargs = {}
 
+        if not isinstance(args, list):
+            args = [args]
+
         while not current_thread().will_stop:
             try:
                 self.logger.log(f'new loop iteration ({target.__name__})', level='debug')
@@ -440,6 +443,9 @@ class Link:
 
         if kwargs is None:
             kwargs = {}
+
+        if not isinstance(args, list):
+            args = [args]
 
         if not method:
             raise ValueError
