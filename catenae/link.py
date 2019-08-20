@@ -41,6 +41,7 @@ from urllib.error import HTTPError
 from socket import timeout
 import json
 import eventlet
+from easyrocks import DB as RocksDB
 from . import utils
 from . import errors
 from .electron import Electron
@@ -100,7 +101,8 @@ class Link:
                  consumer_group=None,
                  consumer_timeout=300,
                  aerospike_endpoint=None,
-                 mongodb_endpoint=None):
+                 mongodb_endpoint=None,
+                 rocksdb_path=None):
 
         # Preserve the id if the container restarts
         if 'CATENAE_DOCKER' in environ \
@@ -134,7 +136,7 @@ class Link:
         self._set_execution_opts(input_mode, exp_window_size, synchronous, sequential,
                                  num_rpc_threads, num_main_threads, input_topics, output_topics,
                                  kafka_endpoint, consumer_timeout)
-        self._set_connectors_properties(aerospike_endpoint, mongodb_endpoint)
+        self._set_connectors_properties(aerospike_endpoint, mongodb_endpoint, rocksdb_path)
         self._set_consumer_group(consumer_group, uid_consumer_group)
 
         self._input_messages = ThreadingQueue()
@@ -148,7 +150,7 @@ class Link:
         self._safe_stop_loop_threads = list()
 
     @suicide_on_error
-    def _set_connectors_properties(self, aerospike_endpoint, mongodb_endpoint):
+    def _set_connectors_properties(self, aerospike_endpoint, mongodb_endpoint, rocksdb_path):
         self._set_aerospike_properties(aerospike_endpoint)
         if hasattr(self, '_aerospike_host'):
             self.logger.log(f'aerospike_host: {self._aerospike_host}')
@@ -160,6 +162,10 @@ class Link:
             self.logger.log(f'mongodb_host: {self._mongodb_host}')
         if hasattr(self, '_mongodb_port'):
             self.logger.log(f'mongodb_port: {self._mongodb_port}')
+
+        self._set_rocksdb_properties(rocksdb_path)
+        if hasattr(self, '_rocksdb_path'):
+            self.logger.log(f'rocksdb_path: {self._rocksdb_path}')
 
     @suicide_on_error
     def _set_execution_opts(self, input_mode, exp_window_size, synchronous, sequential,
@@ -255,6 +261,10 @@ class Link:
     @property
     def mongodb(self):
         return self._mongodb
+
+    @property
+    def rocksdb(self):
+        return self._rocksdb
 
     @suicide_on_error
     def _loop_task(self, target, args=None, kwargs=None, interval=0, wait=False, level='debug'):
@@ -1229,6 +1239,11 @@ class Link:
         except AttributeError:
             self._mongodb = None
 
+        try:
+            self._rocksdb = RocksDB(self._rocksdb_path)
+        except AttributeError:
+            self._rocksdb = None
+
     @suicide_on_error
     def _set_consumer_group(self, consumer_group, uid_consumer_group):
         if hasattr(self, 'consumer_group'):
@@ -1362,6 +1377,22 @@ class Link:
             self._mongodb_port = int(host_port[1])
 
     @suicide_on_error
+    def _parse_rocksdb_args(self, parser):
+        parser.add_argument('-r',
+                            '--rocksdb',
+                            action="store",
+                            dest="rocksdb_path",
+                            help='RocksDB path. \
+                            E.g., "/tmp/rocksdb"',
+                            required=False)
+
+    @suicide_on_error
+    def _set_rocksdb_properties(self, rocksdb_path):
+        if rocksdb_path is None:
+            return
+        self._rocksdb_path = rocksdb_path
+
+    @suicide_on_error
     def _parse_kafka_args(self, parser):
         parser.add_argument('-i',
                             '--input',
@@ -1486,6 +1517,7 @@ class Link:
         self._parse_kafka_args(parser)
         self._parse_aerospike_args(parser)
         self._parse_mongodb_args(parser)
+        self._parse_rocksdb_args(parser)
 
         parsed_args = parser.parse_known_args()
         link_args = parsed_args[0]
@@ -1495,3 +1527,4 @@ class Link:
         self._set_kafka_properties_from_args(link_args)
         self._set_aerospike_properties(link_args.aerospike_endpoint)
         self._set_mongodb_properties(link_args.mongodb_endpoint)
+        self._set_rocksdb_properties(link_args.rocksdb_path)
