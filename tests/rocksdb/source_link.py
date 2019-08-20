@@ -9,9 +9,9 @@ from random import randint
 class SourceLink(Link):
     def generator(self):
         number = randint(0, 1000)
-        self.logger.log(f'randint: {number}')
         self.rocksdb.put('test_key', number)
-        self.logger.log(f"rocksdb[test_key]: {self.rocksdb.get('test_key')}")
+        assert self.rocksdb.get('test_key') == number
+        self.logger.log(f"[OK] rocksdb['test_key']: {number}")
         time.sleep(1)
 
 
