@@ -27,6 +27,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import catenae
 import math
 from threading import Lock, current_thread
 from multiprocessing import Pipe
@@ -1099,6 +1100,9 @@ class Link:
                 self.logger.log(f'removed input {input_topic}')
 
     def start(self, embedded=False):
+        self.logger.log(catenae.text_logo)
+        self.logger.log(f'Catenae v{catenae.__version__} Beryllium\n')
+
         with self._start_stop_lock:
             if self._started:
                 return

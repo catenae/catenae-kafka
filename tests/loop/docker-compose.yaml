@@ -7,14 +7,8 @@ x-logging: &default-logging
   driver: json-file
 
 services:
-  kafka:
-    image: catenae/kafka
-    logging: *default-logging
-
   source_link:
     image: catenae/link:develop
-    command: source_link.py -o input1 -k kafka:9092
+    command: source_link.py
     working_dir: /opt/catenae/tests/loop
     restart: always
-    depends_on:
-      - kafka
