@@ -68,7 +68,6 @@ def rpc(method):
 
 def suicide_on_error(method):
     """ Try-Except decorator for Link instance methods """
-
     def _try_except(self, *args, **kwargs):
         try:
             return method(self, *args, **kwargs)
@@ -145,8 +144,8 @@ class Link:
         self._jsonrpc_conn1, self._jsonrpc_conn2 = Pipe()
         self._changed_input_topics = False
 
-        self._instances_store_lock = Lock()
-        self._instances_store = {'by_uid': dict(), 'by_group': dict()}
+        self._instances_lock = Lock()
+        self._instances = {'by_uid': dict(), 'by_group': dict()}
         self._known_instances = dict()
         self._safe_stop_loop_threads = list()
 
@@ -329,25 +328,25 @@ class Link:
 
     @suicide_on_error
     def _delete_from_store(self, uid, group):
-        with self._instances_store_lock:
-            if uid in self._instances_store['by_uid']:
-                del self._instances_store['by_uid'][uid]
-                self._instances_store['by_group'][group].remove(uid)
+        with self._instances_lock:
+            if uid in self._instances['by_uid']:
+                del self._instances['by_uid'][uid]
+                self._instances['by_group'][group].remove(uid)
 
     @suicide_on_error
     def _add_to_store(self, uid, group, host, port, scheme):
-        with self._instances_store_lock:
-            self._instances_store['by_uid'][uid] = {
+        with self._instances_lock:
+            self._instances['by_uid'][uid] = {
                 'host': host,
                 'port': port,
                 'scheme': scheme,
                 'group': group
             }
-            if not group in self._instances_store['by_group']:
-                self._instances_store['by_group'][group] = list()
+            if not group in self._instances['by_group']:
+                self._instances['by_group'][group] = list()
 
-            if uid not in self._instances_store['by_group'][group]:
-                self._instances_store['by_group'][group].append(uid)
+            if uid not in self._instances['by_group'][group]:
+                self._instances['by_group'][group].append(uid)
 
     @suicide_on_error
     def _rpc_request_monitor(self):
@@ -425,7 +424,7 @@ class Link:
             raise errors.InternalError
 
     def jsonrpc_call(self, uid, method, kwargs=None, request_id=None):
-        instance_info = self._instances_store['by_uid'][uid]
+        instance_info = self._instances['by_uid'][uid]
 
         url = f"{instance_info['scheme']}://{instance_info['host']}:{instance_info['port']}"
 
@@ -446,7 +445,7 @@ class Link:
         except timeout:
             raise errors.Timeout
         except Exception:
-            raise errors.Remote
+            raise errors.RPCError
 
         return result
 
@@ -472,14 +471,14 @@ class Link:
         return True
 
     @property
-    def instances_store(self):
-        with self._instances_store_lock:
-            instances_store = dict(self._instances_store)
+    def instances(self):
+        with self._instances_lock:
+            instances_store = dict(self._instances)
             return instances_store
 
     @rpc
-    def get_instances_store(self):
-        return self.instances_store
+    def get_instances(self):
+        return self.instances
 
     @rpc
     def available(self):
