@@ -1098,9 +1098,11 @@ class Link:
                 self._changed_input_topics = True
                 self.logger.log(f'removed input {input_topic}')
 
-    def start(self, embedded=False):
-        self.logger.log(catenae.text_logo)
-        self.logger.log(f'Catenae v{catenae.__version__} Beryllium\n')
+    def start(self, embedded=False, startup_text=None):
+        if startup_text is None:
+            startup_text = catenae.text_logo
+        self.logger.log(startup_text)
+        self.logger.log(f'Catenae v{catenae.__version__} {catenae.__version_name__}')
 
         with self._start_stop_lock:
             if self._started:
