@@ -85,6 +85,7 @@ class Link:
     CHECK_INSTANCES_INTERVAL = 5
     INSTANCE_TIMEOUT = 3
     COMMIT_ATTEMPTS = 30
+    REPORT_EXISTENCE_INTERVAL = 10
 
     def __init__(self,
                  log_level='INFO',
@@ -322,19 +323,19 @@ class Link:
             scheme = properties['scheme']
 
             if self._is_endpoint_available(host, port, scheme):
-                self._add_to_store(uid, group, host, port, scheme)
+                self._add_to_known_instances(uid, group, host, port, scheme)
             else:
-                self._delete_from_store(uid, group)
+                self._delete_from_known_instances(uid, group)
 
     @suicide_on_error
-    def _delete_from_store(self, uid, group):
+    def _delete_from_known_instances(self, uid, group):
         with self._instances_lock:
             if uid in self._instances['by_uid']:
                 del self._instances['by_uid'][uid]
                 self._instances['by_group'][group].remove(uid)
 
     @suicide_on_error
-    def _add_to_store(self, uid, group, host, port, scheme):
+    def _add_to_known_instances(self, uid, group, host, port, scheme):
         with self._instances_lock:
             self._instances['by_uid'][uid] = {
                 'host': host,
@@ -473,8 +474,8 @@ class Link:
     @property
     def instances(self):
         with self._instances_lock:
-            instances_store = dict(self._instances)
-            return instances_store
+            instances_known_instances = dict(self._instances)
+            return instances_known_instances
 
     @rpc
     def get_instances(self):
@@ -486,7 +487,7 @@ class Link:
 
     @suicide_on_error
     @rpc
-    def add_instance_to_store(self, context, host, port, scheme):
+    def add_instance_to_known_instances(self, context, host, port, scheme):
         if self._it_is_me(host, port):
             return True
 
@@ -1132,9 +1133,6 @@ class Link:
                 self._join_tasks()
 
     def _join_tasks(self):
-        if self._kafka_endpoint:
-            self._report_existence()
-
         for thread in self._safe_stop_loop_threads:
             self._join_if_not_current_thread(thread)
 
@@ -1217,6 +1215,9 @@ class Link:
             # RPC requests thread
             self.loop(self._rpc_request_monitor, interval=Link.TIMEOUT)
 
+            # Report existence periodically
+            self.loop(self._report_existence, interval=Link.REPORT_EXISTENCE_INTERVAL)
+
     @suicide_on_error
     def _report_existence(self):
         kwargs = {
@@ -1224,7 +1225,7 @@ class Link:
             'port': environ['JSONRPC_PORT'],
             'scheme': environ['JSONRPC_SCHEME']
         }
-        self.rpc_call(to='broadcast', method='add_instance_to_store', kwargs=kwargs)
+        self.rpc_call(to='broadcast', method='add_instance_to_known_instances', kwargs=kwargs)
 
     def _set_log_level(self, log_level):
         if not hasattr(self, '_log_level'):
