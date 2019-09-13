@@ -123,7 +123,8 @@ class Link:
         self._input_topics_lock = Lock()
         self._rpc_lock = Lock()
         self._start_stop_lock = Lock()
-
+        self._known_instances_lock = Lock()
+        
         # RPC topics
         self._rpc_instance_topic = f'catenae_rpc_{self._uid}'
         self._rpc_group_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
@@ -314,18 +315,19 @@ class Link:
 
     @suicide_on_error
     def _check_instances(self):
-        for uid, properties in self._known_instances.items():
-            self.logger.log(f"checking instance availability for {uid}", level='debug')
+        with self._known_instances_lock:
+            for uid, properties in self._known_instances.items():
+                self.logger.log(f"checking instance availability for {uid}", level='debug')
 
-            group = properties['group']
-            host = properties['host']
-            port = properties['port']
-            scheme = properties['scheme']
+                group = properties['group']
+                host = properties['host']
+                port = properties['port']
+                scheme = properties['scheme']
 
-            if self._is_endpoint_available(host, port, scheme):
-                self._add_to_known_instances(uid, group, host, port, scheme)
-            else:
-                self._delete_from_known_instances(uid, group)
+                if self._is_endpoint_available(host, port, scheme):
+                    self._add_to_known_instances(uid, group, host, port, scheme)
+                else:
+                    self._delete_from_known_instances(uid, group)
 
     @suicide_on_error
     def _delete_from_known_instances(self, uid, group):
@@ -362,7 +364,7 @@ class Link:
         error_code = None
         try:
             method, kwargs = request
-            output = self._jsonrpc_call(method, kwargs)
+            output = self._rpc_call(method, kwargs)
 
             if not isinstance(output, tuple):
                 response.update({'result': output})
@@ -405,7 +407,7 @@ class Link:
             return True
         return False
 
-    def _jsonrpc_call(self, method, kwargs=None):
+    def _rpc_call(self, method, kwargs=None):
         if not self._is_method_rpc_enabled(method):
             self.logger.log(f'method {method} cannot be called', level='error')
             raise errors.MethodNotFoundError
@@ -424,7 +426,7 @@ class Link:
             self.logger.log(level='exception')
             raise errors.InternalError
 
-    def jsonrpc_call(self, uid, method, kwargs=None, request_id=None):
+    def rpc_call(self, uid, method, kwargs=None, request_id=None):
         instance_info = self._instances['by_uid'][uid]
 
         url = f"{instance_info['scheme']}://{instance_info['host']}:{instance_info['port']}"
@@ -488,18 +490,19 @@ class Link:
     @suicide_on_error
     @rpc
     def add_instance_to_known_instances(self, context, host, port, scheme):
-        if self._it_is_me(host, port):
-            return True
+        with self._known_instances_lock:
+            if self._it_is_me(host, port):
+                return True
 
-        self._known_instances[context['uid']] = {
-            'host': host,
-            'port': port,
-            'scheme': scheme,
-            'group': context['group']
-        }
+            self._known_instances[context['uid']] = {
+                'host': host,
+                'port': port,
+                'scheme': scheme,
+                'group': context['group']
+            }
 
     @suicide_on_error
-    def rpc_call(self, to='broadcast', method=None, args=None, kwargs=None):
+    def rpc_notify(self, to='broadcast', method=None, args=None, kwargs=None):
         """ 
         Send a Kafka message which will be interpreted as a RPC call by the receiver module.
         """
@@ -528,7 +531,7 @@ class Link:
         self.send(electron, synchronous=True)
 
     @suicide_on_error
-    def _kafka_rpc_call(self, electron, commit_callback):
+    def _rpc_notify(self, electron, commit_callback):
         method = electron.value['method']
         if not self._is_method_rpc_enabled(method):
             self.logger.log(f'method {method} cannot be called', level='error')
@@ -808,7 +811,7 @@ class Link:
             # The destiny topic will be overwritten if desired in the
             # transform method (default, first output topic)
             if electron.previous_topic in self._rpc_topics:
-                self._transform_rpc_executor.submit(self._kafka_rpc_call,
+                self._transform_rpc_executor.submit(self._rpc_notify,
                                                     [electron, commit_callback])
             else:
                 self._transform_main_executor.submit(self._transform, [electron, commit_callback])
@@ -1217,7 +1220,7 @@ class Link:
             'port': environ['JSONRPC_PORT'],
             'scheme': environ['JSONRPC_SCHEME']
         }
-        self.rpc_call(to='broadcast', method='add_instance_to_known_instances', kwargs=kwargs)
+        self.rpc_notify(to='broadcast', method='add_instance_to_known_instances', kwargs=kwargs)
 
     def _set_log_level(self, log_level):
         if not hasattr(self, '_log_level'):
