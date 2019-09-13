@@ -5,41 +5,56 @@ import multiprocessing
 
 
 class Process(multiprocessing.Process):
-    def __init__(self, **kwargs):
-        super(Process, self).__init__(**kwargs)
-        self._stop = multiprocessing.Event()
+    def __init__(self, target, args=None, kwargs=None):
+        if args is None:
+            args = ()
+        elif isinstance(args, list):
+            args = tuple(args)
+        elif not isinstance(args, tuple):
+            args = ([args])
+
+        if kwargs is None:
+            kwargs = dict()
+
+        super().__init__(target=target, args=args, kwargs=kwargs)
+        self._will_stop = multiprocessing.Event()
 
     def stop(self):
-        self._stop.set()
+        self._will_stop.set()
 
-    def stopped(self):
-        return self._stop.is_set()
+    @property
+    def will_stop(self):
+        return self._will_stop.is_set()
 
 
 class ProcessPool:
     def __init__(self, link_instance, num_processes=1):
         self.link_instance = link_instance
-        self.tasks_queue = Queue()
-
+        self.tasks_queue = multiprocessing.Queue()
         self.processes = []
+
         for i in range(num_processes):
-            process = Process(target=self._worker_target, args=[i])
+            process = Process(self._worker_target, i)
             self.processes.append(process)
             process.start()
 
     def submit(self, target, args=None, kwargs=None):
+        if args is None:
+            args = []
+
+        if not isinstance(args, list):
+            args = [args]
+
+        if kwargs is None:
+            kwargs = {}
+
         self.tasks_queue.put((target, args, kwargs))
 
-    def _worker_target(self, i):
-        while not self.processes[i].stopped():
+    def _worker_target(self, index):
+        while not self.processes[index].will_stop:
             try:
                 target, args, kwargs = self.tasks_queue.get()
-                if args:
-                    target(*args)
-                elif kwargs:
-                    target(**kwargs)
-                else:
-                    target()
+                target(*args, **kwargs)
             except Exception:
-                self.link_instance.logger.log(
-                    f'Exception during the execution of "{target.__name__}".', level='exception')
+                self.link_instance.logger.log(f'exception during the execution of a task',
+                                              level='exception')

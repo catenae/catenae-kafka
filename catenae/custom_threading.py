@@ -7,8 +7,18 @@ from .errors import EmptyError
 
 
 class Thread(threading.Thread):
-    def __init__(self, *args, **kwargs):
-        super(Thread, self).__init__(*args, **kwargs)
+    def __init__(self, target, args=None, kwargs=None):
+        if args is None:
+            args = ()
+        elif isinstance(args, list):
+            args = tuple(args)
+        elif not isinstance(args, tuple):
+            args = ([args])
+
+        if kwargs is None:
+            kwargs = dict()
+
+        super().__init__(target=target, args=args, kwargs=kwargs)
         self._will_stop = False
 
     def stop(self):
@@ -24,24 +34,29 @@ class ThreadPool:
         self.link_instance = link_instance
         self.tasks_queue = ThreadingQueue()
         self.threads = []
+
         for i in range(num_threads):
-            thread = Thread(target=self._worker_target, args=[i])
+            thread = Thread(self._worker_target, i)
             self.threads.append(thread)
             thread.start()
 
     def submit(self, target, args=None, kwargs=None):
+        if args is None:
+            args = []
+
+        if not isinstance(args, list):
+            args = [args]
+
+        if kwargs is None:
+            kwargs = {}
+
         self.tasks_queue.put((target, args, kwargs))
 
-    def _worker_target(self, i):
-        while not self.threads[i].will_stop:
+    def _worker_target(self, index):
+        while not self.threads[index].will_stop:
             try:
                 target, args, kwargs = self.tasks_queue.get(timeout=1, block=False)
-                if args:
-                    target(*args)
-                elif kwargs:
-                    target(**kwargs)
-                else:
-                    target()
+                target(*args, **kwargs)
             except EmptyError:
                 pass
             except Exception:

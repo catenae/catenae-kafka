@@ -617,7 +617,7 @@ class Link:
             'wait': wait,
             'level': level
         }
-        loop_thread = Thread(target=self._loop_task, kwargs=loop_task_kwargs)
+        loop_thread = Thread(self._loop_task, kwargs=loop_task_kwargs)
         if safe_stop:
             self._safe_stop_loop_threads.append(loop_thread)
         loop_thread.start()
@@ -625,21 +625,13 @@ class Link:
 
     @suicide_on_error
     def launch_thread(self, target, args=None, kwargs=None):
-        if args is None:
-            args = ()
-        if kwargs is None:
-            kwargs = dict()
-        thread = Thread(target=target, args=args, kwargs=kwargs)
+        thread = Thread(target, args=args, kwargs=kwargs)
         thread.start()
         return thread
 
     @suicide_on_error
     def launch_process(self, target, args=None, kwargs=None):
-        if args is None:
-            args = ()
-        if kwargs is None:
-            kwargs = dict()
-        process = Process(target=target, args=args, kwargs=kwargs)
+        process = Process(target, args=args, kwargs=kwargs)
         process.start()
         return process
 
@@ -1127,7 +1119,7 @@ class Link:
         finally:
             self.logger.log(f'link {self._uid} is running')
             if embedded:
-                Thread(target=self._join_tasks).start()
+                Thread(self._join_tasks).start()
             else:
                 self._setup_signals_handler()
                 self._join_tasks()
@@ -1188,25 +1180,25 @@ class Link:
         if self._kafka_endpoint:
             # Kafka RPC consumer
             consumer_kwargs = {'target': self._kafka_rpc_consumer}
-            self._consumer_rpc_thread = Thread(target=self._thread_target, kwargs=consumer_kwargs)
+            self._consumer_rpc_thread = Thread(self._thread_target, kwargs=consumer_kwargs)
             self._consumer_rpc_thread.start()
 
             # Kafka main consumer
             self._set_input_topic_assignments()
-            self._consumer_main_thread = Thread(target=self._thread_target,
+            self._consumer_main_thread = Thread(self._thread_target,
                                                 kwargs={'target': self._kafka_main_consumer})
             self._consumer_main_thread.start()
 
             # Kafka producer
             producer_kwargs = {'target': self._kafka_producer}
-            self._producer_thread = Thread(target=self._thread_target, kwargs=producer_kwargs)
+            self._producer_thread = Thread(self._thread_target, kwargs=producer_kwargs)
             self._producer_thread.start()
 
             # Transform
             self._transform_rpc_executor = ThreadPool(self, self._num_rpc_threads)
             self._transform_main_executor = ThreadPool(self, self._num_main_threads)
             transform_kwargs = {'target': self._input_handler}
-            self._input_handler_thread = Thread(target=self._thread_target, kwargs=transform_kwargs)
+            self._input_handler_thread = Thread(self._thread_target, kwargs=transform_kwargs)
             self._input_handler_thread.start()
 
             # Unavailable instances monitor
