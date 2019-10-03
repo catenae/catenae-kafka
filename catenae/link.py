@@ -1244,6 +1244,8 @@ class Link:
             self._rocksdb = RocksDB(self._rocksdb_path)
         except AttributeError:
             self._rocksdb = None
+        except Exception:
+            self._rocksdb = RocksDB(self._rocksdb_path, read_only=True)
 
     @suicide_on_error
     def _set_consumer_group(self, consumer_group, uid_consumer_group):
