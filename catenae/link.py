@@ -124,7 +124,7 @@ class Link:
         self._rpc_lock = Lock()
         self._start_stop_lock = Lock()
         self._known_instances_lock = Lock()
-        
+
         # RPC topics
         self._rpc_instance_topic = f'catenae_rpc_{self._uid}'
         self._rpc_group_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
@@ -149,7 +149,7 @@ class Link:
         self._instances_lock = Lock()
         self._instances = {'by_uid': dict(), 'by_group': dict()}
         self._known_instances = dict()
-        self._safe_stop_loop_threads = list()
+        self._safe_stop_threads = list()
 
     @suicide_on_error
     def _set_connectors_properties(self, aerospike_endpoint, mongodb_endpoint, rocksdb_path):
@@ -580,7 +580,7 @@ class Link:
 
         self.logger.log('stopping threads...')
 
-        for thread in self._safe_stop_loop_threads:
+        for thread in self._safe_stop_threads:
             thread.stop()
 
         if self._kafka_endpoint:
@@ -622,13 +622,15 @@ class Link:
         }
         loop_thread = Thread(self._loop_task, kwargs=loop_task_kwargs)
         if safe_stop:
-            self._safe_stop_loop_threads.append(loop_thread)
+            self._safe_stop_threads.append(loop_thread)
         loop_thread.start()
         return loop_thread
 
     @suicide_on_error
-    def launch_thread(self, target, args=None, kwargs=None):
+    def launch_thread(self, target, args=None, kwargs=None, safe_stop=False):
         thread = Thread(target, args=args, kwargs=kwargs)
+        if safe_stop:
+            self._safe_stop_threads.append(thread)
         thread.start()
         return thread
 
@@ -811,8 +813,7 @@ class Link:
             # The destiny topic will be overwritten if desired in the
             # transform method (default, first output topic)
             if electron.previous_topic in self._rpc_topics:
-                self._transform_rpc_executor.submit(self._rpc_notify,
-                                                    [electron, commit_callback])
+                self._transform_rpc_executor.submit(self._rpc_notify, [electron, commit_callback])
             else:
                 self._transform_main_executor.submit(self._transform, [electron, commit_callback])
 
@@ -1064,15 +1065,16 @@ class Link:
 
     @suicide_on_error
     def _thread_target(self, target, args=None, kwargs=None):
-        try:
-            if args:
-                target(*args)
-            elif kwargs:
-                target(**kwargs)
-            else:
-                target()
-        except Exception:
-            self.suicide(f'Exception during the execution of "{target.__name__}"', exception=True)
+        if args is None:
+            args = []
+
+        if not isinstance(args, list):
+            args = [args]
+
+        if kwargs is None:
+            kwargs = {}
+
+        target(*args, **kwargs)
 
     @suicide_on_error
     def add_input_topic(self, input_topic):
@@ -1128,7 +1130,7 @@ class Link:
                 self._join_tasks()
 
     def _join_tasks(self):
-        for thread in self._safe_stop_loop_threads:
+        for thread in self._safe_stop_threads:
             self._join_if_not_current_thread(thread)
 
         if self._kafka_endpoint:
