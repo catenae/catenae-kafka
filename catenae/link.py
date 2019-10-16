@@ -123,7 +123,7 @@ class Link:
         self._input_topics_lock = Lock()
         self._rpc_lock = Lock()
         self._start_stop_lock = Lock()
-        self._known_instances_lock = Lock()
+        self._instances_lock = Lock()
 
         # RPC topics
         self._rpc_instance_topic = f'catenae_rpc_{self._uid}'
@@ -140,13 +140,13 @@ class Link:
                                  kafka_endpoint, consumer_timeout)
         self._set_connectors_properties(aerospike_endpoint, mongodb_endpoint, rocksdb_path)
         self._set_consumer_group(consumer_group, uid_consumer_group)
+        self._set_jsonrpc_props()
 
         self._input_messages = ThreadingQueue()
         self._output_messages = ThreadingQueue()
         self._jsonrpc_conn1, self._jsonrpc_conn2 = Pipe()
         self._changed_input_topics = False
 
-        self._instances_lock = Lock()
         self._instances = {'by_uid': dict(), 'by_group': dict()}
         self._known_instances = dict()
         self._safe_stop_threads = list()
@@ -315,19 +315,26 @@ class Link:
 
     @suicide_on_error
     def _check_instances(self):
-        with self._known_instances_lock:
-            for uid, properties in self._known_instances.items():
-                self.logger.log(f"checking instance availability for {uid}", level='debug')
+        to_add = []
+        to_remove = []
+        for uid, properties in self._known_instances.items():
+            self.logger.log(f"checking instance availability for {uid}", level='debug')
 
-                group = properties['group']
-                host = properties['host']
-                port = properties['port']
-                scheme = properties['scheme']
+            group = properties['group']
+            host = properties['host']
+            port = properties['port']
+            scheme = properties['scheme']
 
-                if self._is_endpoint_available(host, port, scheme):
-                    self._add_to_known_instances(uid, group, host, port, scheme)
-                else:
-                    self._delete_from_known_instances(uid, group)
+            if self._is_endpoint_available(host, port, scheme):
+                to_add.append((uid, group, host, port, scheme))
+            else:
+                to_remove.append((uid, group))
+
+        for instance in to_remove:
+            self._delete_from_known_instances(*instance)
+
+        for instance in to_add:
+            self._add_to_known_instances(*instance)
 
     @suicide_on_error
     def _delete_from_known_instances(self, uid, group):
@@ -353,53 +360,53 @@ class Link:
 
     @suicide_on_error
     def _rpc_request_monitor(self):
-        new_data = self._jsonrpc_conn1.poll()
-        if not new_data:
-            return
-
         with self._rpc_lock:
-            is_notification, request = self._jsonrpc_conn1.recv()
-
-        response = dict()
-        error_code = None
-        try:
-            method, kwargs = request
-            output = self._rpc_call(method, kwargs)
-
-            if not isinstance(output, tuple):
-                response.update({'result': output})
-
-            else:
-                if len(output) != 2:
-                    raise ValueError
-                error_code = output[0]
-                error_message = output[1]
-                if not isinstance(error_message, str):
-                    raise ValueError
-
-                response.update({'error': {'code': error_code, 'message': error_message}})
-
-        except errors.InvalidParamsError:
-            error_code = JsonRPC.INVALID_PARAMS
-
-        except errors.MethodNotFoundError:
-            error_code = JsonRPC.METHOD_NOT_FOUND
-
-        except errors.InternalError:
-            error_code = JsonRPC.INTERNAL_ERROR
-
-        finally:
-            if is_notification:
+            new_data = self._jsonrpc_conn1.poll()
+            if not new_data:
                 return
 
-        if error_code is not None and 'error' not in response:
-            response.update(
-                {'error': {
-                    'code': error_code,
-                    'message': JsonRPC.ERROR_CODES[error_code]
-                }})
+            is_notification, request = self._jsonrpc_conn1.recv()
 
-        self._jsonrpc_conn1.send(response)
+            response = dict()
+            error_code = None
+            try:
+                method, kwargs = request
+                output = self._rpc_call(method, kwargs)
+
+                if not isinstance(output, tuple):
+                    response.update({'result': output})
+
+                else:
+                    if len(output) != 2:
+                        raise ValueError
+                    error_code = output[0]
+                    error_message = output[1]
+                    if not isinstance(error_message, str):
+                        raise ValueError
+
+                    response.update({'error': {'code': error_code, 'message': error_message}})
+
+            except errors.InvalidParamsError:
+                error_code = JsonRPC.INVALID_PARAMS
+
+            except errors.MethodNotFoundError:
+                error_code = JsonRPC.METHOD_NOT_FOUND
+
+            except errors.InternalError:
+                error_code = JsonRPC.INTERNAL_ERROR
+
+            finally:
+                if is_notification:
+                    return
+
+            if error_code is not None and 'error' not in response:
+                response.update(
+                    {'error': {
+                        'code': error_code,
+                        'message': JsonRPC.ERROR_CODES[error_code]
+                    }})
+
+            self._jsonrpc_conn1.send(response)
 
     @suicide_on_error
     def _is_method_rpc_enabled(self, method):
@@ -454,8 +461,8 @@ class Link:
 
     @suicide_on_error
     def _it_is_me(self, host, port):
-        if host == environ['JSONRPC_HOST'] and \
-           port == environ['JSONRPC_PORT']:
+        if host == self._jsonrpc_props['host'] and \
+           port == self._jsonrpc_props['port']:
             return True
         return False
 
@@ -489,8 +496,8 @@ class Link:
 
     @suicide_on_error
     @rpc
-    def add_instance_to_known_instances(self, context, host, port, scheme):
-        with self._known_instances_lock:
+    def report_existence(self, context, host, port, scheme):
+        with self._instances_lock:
             if self._it_is_me(host, port):
                 return True
 
@@ -537,25 +544,26 @@ class Link:
             self.logger.log(f'method {method} cannot be called', level='error')
             return
 
-        with self._rpc_lock:
-            if not 'method' in electron.value:
-                self.logger.log(f'invalid RPC invocation: {electron.value}', level='error')
-                return
+        if not 'method' in electron.value:
+            self.logger.log(f'invalid RPC invocation: {electron.value}', level='error')
+            return
 
-            try:
-                context = electron.value['context']
-                self.logger.log(f"RPC invocation from {context['uid']} ({context['group']})",
-                                level='debug')
+        try:
+            context = electron.value['context']
+            self.logger.log(f"RPC invocation from {context['uid']} ({context['group']})",
+                            level='debug')
 
-                args = [context] + electron.value['args']
-                kwargs = electron.value['kwargs']
+            args = [context] + electron.value['args']
+            kwargs = electron.value['kwargs']
+
+            with self._rpc_lock:
                 getattr(self, electron.value['method'])(*args, **kwargs)
 
-            except Exception:
-                self.logger.log(f'error when invoking {method} remotely', level='exception')
+        except Exception:
+            self.logger.log(f'error when invoking {method} remotely', level='exception')
 
-            finally:
-                commit_callback.execute()
+        finally:
+            commit_callback.execute()
 
     def suicide(self, message=None, exception=False):
         with self._start_stop_lock:
@@ -711,12 +719,12 @@ class Link:
 
     @suicide_on_error
     def _transform(self, electron, commit_callback):
-        with self._rpc_lock:
-            try:
+        try:
+            with self._rpc_lock:
                 transform_result = self.transform(electron)
-                self.logger.log('electron transformed', level='debug')
-            except Exception:
-                self.suicide('exception during the execution of "transform"', exception=True)
+            self.logger.log('electron transformed', level='debug')
+        except Exception:
+            self.suicide('exception during the execution of "transform"', exception=True)
 
         transform_callback = Callback()
 
@@ -1218,11 +1226,11 @@ class Link:
     @suicide_on_error
     def _report_existence(self):
         kwargs = {
-            'host': environ['JSONRPC_HOST'],
-            'port': environ['JSONRPC_PORT'],
-            'scheme': environ['JSONRPC_SCHEME']
+            'host': self._jsonrpc_props['host'],
+            'port': self._jsonrpc_props['port'],
+            'scheme': self._jsonrpc_props['scheme']
         }
-        self.rpc_notify(to='broadcast', method='add_instance_to_known_instances', kwargs=kwargs)
+        self.rpc_notify(to='broadcast', method='report_existence', kwargs=kwargs)
 
     def _set_log_level(self, log_level):
         if not hasattr(self, '_log_level'):
@@ -1264,6 +1272,12 @@ class Link:
             self._consumer_group = f'catenae_{self.__class__.__name__.lower()}'
 
         self.logger.log(f'consumer_group: {self._consumer_group}')
+
+    @suicide_on_error
+    def _set_jsonrpc_props(self):
+        self._jsonrpc_props = {'host': environ['JSONRPC_HOST'] if 'JSONRPC_HOST' in environ else '0.0.0.0',
+                               'port': environ['JSONRPC_PORT'] if 'JSONRPC_PORT' in environ else 9494,
+                               'scheme': environ['JSONRPC_SCHEME'] if 'JSONRPC_SCHEME' in environ else 'http'}
 
     @suicide_on_error
     def _set_kafka_common_properties(self):

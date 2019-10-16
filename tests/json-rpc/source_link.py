@@ -14,14 +14,12 @@ class SourceLink(Link):
             self.logger.log(f'result: {result}')
             assert result == 20
 
-        except KeyError:
+        except (KeyError, IndexError):
             self.logger.log('MiddleLink not yet available')
             pass
 
         except errors.RPCError:
             self.logger.log(level='exception')
-
-        time.sleep(5)
 
 
 if __name__ == "__main__":

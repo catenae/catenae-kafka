@@ -17,7 +17,7 @@ from multiprocessing import Lock
 
 class JsonRPC:
 
-    WORKER_TIMEOUT = 30
+    WORKER_TIMEOUT = 0
 
     PARSE_ERROR = -32700
     INVALID_REQUEST = -32600
@@ -120,18 +120,15 @@ class JsonRPC:
             else:
                 queue_request = (rpc_request['method'], None)
 
-            self.lock.acquire()
-            self.pipe_connection.send((is_notification, queue_request))
+            with self.lock:
+                self.pipe_connection.send((is_notification, queue_request))
 
-            if is_notification:
-                self.lock.release()
-                return Response(status=200)
-
-            response = JsonRPC.get_response(request_id)
-            returned = self.pipe_connection.recv()
-            response.update(returned)
-
-            self.lock.release()
+                if is_notification:
+                    return Response(status=200)
+                else:
+                    response = JsonRPC.get_response(request_id)
+                    returned = self.pipe_connection.recv()
+                    response.update(returned)
 
             try:
                 json.dumps(response)
