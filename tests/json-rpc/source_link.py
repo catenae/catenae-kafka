@@ -16,10 +16,13 @@ class SourceLink(Link):
 
         except (KeyError, IndexError):
             self.logger.log('MiddleLink not yet available')
-            pass
+            time.sleep(1)
 
         except errors.RPCError:
             self.logger.log(level='exception')
+
+    def transform(self, electron):
+        self.logger.log(f'Received message: {electron.value}')
 
 
 if __name__ == "__main__":
