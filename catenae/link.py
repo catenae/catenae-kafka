@@ -1186,7 +1186,9 @@ class Link:
         self.loop(self.generator, interval=0, safe_stop=True)
 
         # JSON-RPC
-        self._jsonrpc_process = Process(target=JsonRPC(self._jsonrpc_conn2, self.logger).run)
+        self._jsonrpc_process = Process(target=JsonRPC(self._jsonrpc_props['port'],
+                                                       self._jsonrpc_conn2,
+                                                       self.logger).run)
         self._jsonrpc_process.daemon = True
         self._jsonrpc_process.start()
 

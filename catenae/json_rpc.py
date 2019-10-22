@@ -42,7 +42,8 @@ class JsonRPC:
         INTERNAL_ERROR: 500
     }
 
-    def __init__(self, pipe_connection, logger):
+    def __init__(self, port, pipe_connection, logger):
+        self.port = port
         self.logger = logger
         self.app = Flask(__name__)
         CORS(self.app)
@@ -159,7 +160,7 @@ class JsonRPC:
         # In order to support multiple workers, the interprocess communication
         # has to be reimplemented with queues instead of pipes
         options = {
-            'bind': f"0.0.0.0:{environ['JSONRPC_PORT']}",
+            'bind': f"0.0.0.0:{self.port}",
             'workers': 1,
             'timeout': JsonRPC.WORKER_TIMEOUT
         }
