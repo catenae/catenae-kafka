@@ -8,7 +8,7 @@ import time
 class SourceLink(Link):
     def generator(self):
         self.logger.log(f'Invoking plus_two()')
-        self.rpc_notify('MiddleLink', 'plus_two', kwargs={'number': 8})
+        self.rpc_notify('plus_two', kwargs={'number': 8}, to='MiddleLink')
         time.sleep(1)
 
 
