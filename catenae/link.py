@@ -509,7 +509,7 @@ class Link:
             }
 
     @suicide_on_error
-    def rpc_notify(self, to='broadcast', method=None, args=None, kwargs=None):
+    def rpc_notify(self, method=None, args=None, kwargs=None, to='broadcast'):
         """ 
         Send a Kafka message which will be interpreted as a RPC call by the receiver module.
         """
