@@ -6,6 +6,9 @@ from .custom_queue import ThreadingQueue
 from .errors import EmptyError
 
 
+def should_stop_thread():
+    return threading.current_thread()
+
 class Thread(threading.Thread):
     def __init__(self, target, args=None, kwargs=None):
         if args is None:
