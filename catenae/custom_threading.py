@@ -6,8 +6,9 @@ from .custom_queue import ThreadingQueue
 from .errors import EmptyError
 
 
-def should_stop_thread():
-    return threading.current_thread()
+def should_stop():
+    return threading.current_thread().will_stop
+
 
 class Thread(threading.Thread):
     def __init__(self, target, args=None, kwargs=None):
@@ -63,5 +64,4 @@ class ThreadPool:
             except EmptyError:
                 pass
             except Exception:
-                self.link_instance.logger.log(f'exception during the execution of a task',
-                                              level='exception')
+                self.link_instance.logger.log(f'exception during the execution of a task', level='exception')
