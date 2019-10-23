@@ -553,8 +553,10 @@ class Link:
             self.logger.log(f"RPC invocation from {context['uid']} ({context['group']})",
                             level='debug')
 
-            args = [context] + electron.value['args']
+            args = electron.value['args']
+            
             kwargs = electron.value['kwargs']
+            kwargs['context'] = context
 
             with self._rpc_lock:
                 getattr(self, electron.value['method'])(*args, **kwargs)
