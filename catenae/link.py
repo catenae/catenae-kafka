@@ -311,9 +311,12 @@ class Link:
 
     @suicide_on_error
     def _check_instances(self):
+        with self._instances_lock:
+            known_instances = dict(self._known_instances)
+            
         to_add = []
         to_remove = []
-        for uid, properties in self._known_instances.items():
+        for uid, properties in known_instances.items():
             self.logger.log(f"checking instance availability for {uid}", level='debug')
 
             group = properties['group']
