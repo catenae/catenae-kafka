@@ -68,6 +68,7 @@ def rpc(method):
 
 def suicide_on_error(method):
     """ Try-Except decorator for Link instance methods """
+
     def _try_except(self, *args, **kwargs):
         try:
             return method(self, *args, **kwargs)
@@ -129,15 +130,12 @@ class Link:
         self._rpc_instance_topic = f'catenae_rpc_{self._uid}'
         self._rpc_group_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
         self._rpc_broadcast_topic = 'catenae_rpc_broadcast'
-        self._rpc_topics = [
-            self._rpc_instance_topic, self._rpc_group_topic, self._rpc_broadcast_topic
-        ]
+        self._rpc_topics = [self._rpc_instance_topic, self._rpc_group_topic, self._rpc_broadcast_topic]
         self._known_message_ids = CircularOrderedSet(50)
 
         self._load_args()
-        self._set_execution_opts(input_mode, exp_window_size, synchronous, sequential,
-                                 num_rpc_threads, num_main_threads, input_topics, output_topics,
-                                 kafka_endpoint, consumer_timeout)
+        self._set_execution_opts(input_mode, exp_window_size, synchronous, sequential, num_rpc_threads,
+                                 num_main_threads, input_topics, output_topics, kafka_endpoint, consumer_timeout)
         self._set_connectors_properties(aerospike_endpoint, mongodb_endpoint, rocksdb_path)
         self._set_consumer_group(consumer_group, uid_consumer_group)
         self._set_jsonrpc_props()
@@ -170,9 +168,8 @@ class Link:
             self.logger.log(f'rocksdb_path: {self._rocksdb_path}')
 
     @suicide_on_error
-    def _set_execution_opts(self, input_mode, exp_window_size, synchronous, sequential,
-                            num_rpc_threads, num_main_threads, input_topics, output_topics,
-                            kafka_endpoint, consumer_timeout):
+    def _set_execution_opts(self, input_mode, exp_window_size, synchronous, sequential, num_rpc_threads,
+                            num_main_threads, input_topics, output_topics, kafka_endpoint, consumer_timeout):
 
         if not hasattr(self, '_input_mode'):
             self._input_mode = input_mode
@@ -294,8 +291,7 @@ class Link:
                     time.sleep(sleep_seconds)
 
             except Exception:
-                self.logger.log(f'exception raised when executing the loop: {target.__name__}',
-                                level='exception')
+                self.logger.log(f'exception raised when executing the loop: {target.__name__}', level='exception')
 
     @suicide_on_error
     def _setup_signals_handler(self):
@@ -346,12 +342,7 @@ class Link:
     @suicide_on_error
     def _add_to_known_instances(self, uid, group, host, port, scheme):
         with self._instances_lock:
-            self._instances['by_uid'][uid] = {
-                'host': host,
-                'port': port,
-                'scheme': scheme,
-                'group': group
-            }
+            self._instances['by_uid'][uid] = {'host': host, 'port': port, 'scheme': scheme, 'group': group}
             if not group in self._instances['by_group']:
                 self._instances['by_group'][group] = list()
 
@@ -400,11 +391,7 @@ class Link:
                     return
 
             if error_code is not None and 'error' not in response:
-                response.update(
-                    {'error': {
-                        'code': error_code,
-                        'message': JsonRPC.ERROR_CODES[error_code]
-                    }})
+                response.update({'error': {'code': error_code, 'message': JsonRPC.ERROR_CODES[error_code]}})
 
             self._jsonrpc_conn1.send(response)
 
@@ -553,8 +540,7 @@ class Link:
             args = electron.value['args']
             kwargs = electron.value['kwargs']
             kwargs['context'] = context
-            self.logger.log(f"RPC invocation from {context['uid']} ({context['group']})",
-                            level='debug')
+            self.logger.log(f"RPC invocation from {context['uid']} ({context['group']})", level='debug')
             with self._rpc_lock:
                 getattr(self, electron.value['method'])(*args, **kwargs)
 
@@ -610,14 +596,7 @@ class Link:
         raise SystemExit
 
     @suicide_on_error
-    def loop(self,
-             target,
-             args=None,
-             kwargs=None,
-             interval=0,
-             wait=False,
-             level='debug',
-             safe_stop=True):
+    def loop(self, target, args=None, kwargs=None, interval=0, wait=False, level='debug', safe_stop=True):
         loop_task_kwargs = {
             'target': target,
             'args': args,
@@ -685,8 +664,7 @@ class Link:
         if electron.unpack_if_string and isinstance(electron.value, str):
             serialized_electron = electron.value
         else:
-            serialized_electron = pickle.dumps(electron.get_sendable(),
-                                               protocol=pickle.HIGHEST_PROTOCOL)
+            serialized_electron = pickle.dumps(electron.get_sendable(), protocol=pickle.HIGHEST_PROTOCOL)
 
         if synchronous is None:
             synchronous = self._synchronous
@@ -837,8 +815,7 @@ class Link:
         calls / synchronous mode"""
         message_id = Link._get_message_id(message)
         if message_id in self._known_message_ids:
-            self.logger.log(f'Received known message (topic_partition_offset): {message_id}',
-                            level='debug')
+            self.logger.log(f'Received known message (topic_partition_offset): {message_id}', level='debug')
             return True
         return False
 
@@ -862,8 +839,7 @@ class Link:
                 consumer.commit(message=message, asynchronous=False)
                 commited = True
             except Exception:
-                self.logger.log(f'could not commit the message {message.value()}',
-                                level='exception')
+                self.logger.log(f'could not commit the message {message.value()}', level='exception')
                 attempts += 1
                 if attempts == Link.COMMIT_ATTEMPTS:
                     self.suicide()
@@ -876,8 +852,7 @@ class Link:
     def _kafka_rpc_consumer(self):
         properties = dict(self._kafka_consumer_synchronous_properties)
         consumer = Consumer(properties)
-        self.logger.log(f'[RPC] consumer properties: {utils.dump_dict_pretty(properties)}',
-                        level='debug')
+        self.logger.log(f'[RPC] consumer properties: {utils.dump_dict_pretty(properties)}', level='debug')
         subscription = list(self._rpc_topics)
         consumer.subscribe(subscription)
         self.logger.log(f'[RPC] listening on: {subscription}')
@@ -902,9 +877,6 @@ class Link:
             # Commit when the transformation is commited
             self._input_messages.put((message, self._commit_kafka_message, [consumer, message]))
 
-        # TODO close also with suicide_on_error
-        consumer.close()
-
     @suicide_on_error
     def _kafka_main_consumer(self):
         if self._synchronous:
@@ -913,8 +885,7 @@ class Link:
             properties = dict(self._kafka_consumer_common_properties)
 
         consumer = Consumer(properties)
-        self.logger.log(f'[MAIN] consumer properties: {utils.dump_dict_pretty(properties)}',
-                        level='debug')
+        self.logger.log(f'[MAIN] consumer properties: {utils.dump_dict_pretty(properties)}', level='debug')
 
         while not current_thread().will_stop:
             if not self._input_topics:
@@ -990,16 +961,12 @@ class Link:
                     # Synchronous commit
                     if self._synchronous:
                         # Commit when the transformation is commited
-                        self._input_messages.put(
-                            (message, self._commit_kafka_message, [consumer, message]))
+                        self._input_messages.put((message, self._commit_kafka_message, [consumer, message]))
                         continue
 
                     else:  # Asynchronous
                         self._input_messages.put(message)
                         continue
-
-        # TODO close also with suicide_on_error
-        consumer.close()
 
     @suicide_on_error
     def _get_index_assignment(self, index, elements_no, base=1.7):
@@ -1172,15 +1139,12 @@ class Link:
     def _setup_kafka_producers(self):
         sync_producer_properties = dict(self._kafka_producer_synchronous_properties)
         self._sync_producer = Producer(sync_producer_properties)
-        self.logger.log(
-            f'sync producer properties: {utils.dump_dict_pretty(sync_producer_properties)}',
-            level='debug')
+        self.logger.log(f'sync producer properties: {utils.dump_dict_pretty(sync_producer_properties)}', level='debug')
 
         async_producer_properties = dict(self._kafka_producer_common_properties)
         self._async_producer = Producer(async_producer_properties)
-        self.logger.log(
-            f'async producer properties: {utils.dump_dict_pretty(async_producer_properties)}',
-            level='debug')
+        self.logger.log(f'async producer properties: {utils.dump_dict_pretty(async_producer_properties)}',
+                        level='debug')
 
     @suicide_on_error
     def _launch_tasks(self):
@@ -1188,9 +1152,8 @@ class Link:
         self.loop(self.generator, interval=0, safe_stop=True)
 
         # JSON-RPC
-        self._jsonrpc_process = Process(target=JsonRPC(self._jsonrpc_props['port'],
-                                                       self._jsonrpc_conn2,
-                                                       self.logger).run)
+        self._jsonrpc_process = Process(
+            target=JsonRPC(self._jsonrpc_props['port'], self._jsonrpc_conn2, self.logger).run)
         self._jsonrpc_process.daemon = True
         self._jsonrpc_process.start()
 
@@ -1202,8 +1165,7 @@ class Link:
 
             # Kafka main consumer
             self._set_input_topic_assignments()
-            self._consumer_main_thread = Thread(self._thread_target,
-                                                kwargs={'target': self._kafka_main_consumer})
+            self._consumer_main_thread = Thread(self._thread_target, kwargs={'target': self._kafka_main_consumer})
             self._consumer_main_thread.start()
 
             # Kafka producer
@@ -1243,9 +1205,7 @@ class Link:
     @suicide_on_error
     def _set_connectors(self):
         try:
-            self._aerospike = AerospikeConnector(self._aerospike_host,
-                                                 self._aerospike_port,
-                                                 connect=True)
+            self._aerospike = AerospikeConnector(self._aerospike_host, self._aerospike_port, connect=True)
         except AttributeError:
             self._aerospike = None
 
@@ -1279,9 +1239,11 @@ class Link:
 
     @suicide_on_error
     def _set_jsonrpc_props(self):
-        self._jsonrpc_props = {'host': environ['JSONRPC_HOST'] if 'JSONRPC_HOST' in environ else '0.0.0.0',
-                               'port': environ['JSONRPC_PORT'] if 'JSONRPC_PORT' in environ else 9494,
-                               'scheme': environ['JSONRPC_SCHEME'] if 'JSONRPC_SCHEME' in environ else 'http'}
+        self._jsonrpc_props = {
+            'host': environ['JSONRPC_HOST'] if 'JSONRPC_HOST' in environ else '0.0.0.0',
+            'port': environ['JSONRPC_PORT'] if 'JSONRPC_PORT' in environ else 9494,
+            'scheme': environ['JSONRPC_SCHEME'] if 'JSONRPC_SCHEME' in environ else 'http'
+        }
 
     @suicide_on_error
     def _set_kafka_common_properties(self):
@@ -1307,10 +1269,7 @@ class Link:
         })
 
         self._kafka_consumer_synchronous_properties = dict(self._kafka_consumer_common_properties)
-        self._kafka_consumer_synchronous_properties.update({
-            'enable.auto.commit': False,
-            'auto.commit.interval.ms': 0
-        })
+        self._kafka_consumer_synchronous_properties.update({'enable.auto.commit': False, 'auto.commit.interval.ms': 0})
 
         self._kafka_producer_common_properties = dict(common_properties)
         self._kafka_producer_common_properties.update({
@@ -1421,15 +1380,13 @@ class Link:
                             '--input',
                             action="store",
                             dest="input_topics",
-                            help='Kafka input topics. Several topics ' +
-                            'can be specified separated by commas',
+                            help='Kafka input topics. Several topics ' + 'can be specified separated by commas',
                             required=False)
         parser.add_argument('-o',
                             '--output',
                             action="store",
                             dest="output_topics",
-                            help='Kafka output topics. Several topics ' +
-                            'can be specified separated by commas',
+                            help='Kafka output topics. Several topics ' + 'can be specified separated by commas',
                             required=False)
         parser.add_argument('-k',
                             '--kafka-bootstrap-server',
