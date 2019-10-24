@@ -550,22 +550,18 @@ class Link:
 
         try:
             context = electron.value['context']
-            self.logger.log(f"RPC invocation from {context['uid']} ({context['group']})",
-                            level='debug')
-
             args = electron.value['args']
-            
             kwargs = electron.value['kwargs']
             kwargs['context'] = context
-
+            self.logger.log(f"RPC invocation from {context['uid']} ({context['group']})",
+                            level='debug')
             with self._rpc_lock:
                 getattr(self, electron.value['method'])(*args, **kwargs)
 
         except Exception:
             self.logger.log(f'error when invoking {method} remotely', level='exception')
 
-        finally:
-            commit_callback.execute()
+        commit_callback.execute()
 
     def suicide(self, message=None, exception=False):
         with self._start_stop_lock:
@@ -823,7 +819,11 @@ class Link:
             # The destiny topic will be overwritten if desired in the
             # transform method (default, first output topic)
             if electron.previous_topic in self._rpc_topics:
-                self._transform_rpc_executor.submit(self._rpc_notify, [electron, commit_callback])
+                # Avoid own RPC calls
+                if electron.value['context']['uid'] == self.uid:
+                    commit_callback.execute()
+                else:
+                    self._transform_rpc_executor.submit(self._rpc_notify, [electron, commit_callback])
             else:
                 self._transform_main_executor.submit(self._transform, [electron, commit_callback])
 
