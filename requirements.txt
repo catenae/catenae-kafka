@@ -2,11 +2,11 @@ twine
 setuptools
 confluent_kafka
 web3
-aerospike
-pymongo
 orderedset
 pickle5
 flask_restful
 flask_cors
 gunicorn
 eventlet
+easymongo
+easyaerospike

@@ -42,6 +42,8 @@ from urllib.error import HTTPError
 from socket import timeout
 import json
 import eventlet
+from easyaerospike import AerospikeConnector
+from easymongo import MongodbConnector
 from easyrocks import DB as RocksDB
 from . import utils
 from . import errors
@@ -51,8 +53,6 @@ from .logger import Logger
 from .custom_queue import ThreadingQueue
 from .custom_threading import Thread, ThreadPool
 from .custom_multiprocessing import Process
-from .connectors.aerospike import AerospikeConnector
-from .connectors.mongodb import MongodbConnector
 from .json_rpc import JsonRPC
 from .structures import CircularOrderedSet
 
