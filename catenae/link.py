@@ -832,20 +832,20 @@ class Link:
     @suicide_on_error
     def _commit_kafka_message(self, consumer, message):
         commited = False
-        attempts = 0
+        attempts = 1
         self.logger.log(f'trying to commit the message {message.value()}', level='debug')
         while not commited:
-            if attempts > 1:
-                self.logger.log(f'trying to commit a message (attempt {attempts}/30)', level='warn')
+            if attempts > 2:
+                self.logger.log(f'trying to commit a message (attempt {attempts}/{Link.COMMIT_ATTEMPTS})', level='warn')
             try:
                 consumer.commit(message=message, asynchronous=False)
                 commited = True
             except Exception:
                 self.logger.log(f'could not commit the message {message.value()}', level='exception')
-                attempts += 1
                 if attempts == Link.COMMIT_ATTEMPTS:
                     self.suicide()
                 else:
+                    attempts += 1
                     time.sleep(1)
 
         self.logger.log(f'message {message.value()} commited', level='debug')
