@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from web3 import Web3
 import json
 import time
 import hashlib
@@ -35,34 +34,24 @@ def keccak256(item):
     return Web3.sha3(text=item).hex()[2:]
 
 
-def b2bsha3_512(text):
-    if type(text) != str:
-        raise ValueError
-    return _blake2b_512(_sha3_512(text) + text)
-
-
-def b2bsha3_256(text):
-    if type(text) != str:
-        raise ValueError
-    return _blake2b_256(_sha3_512(text) + text)
-
-
-def _blake2b_512(text):
-    if type(text) != str:
-        raise ValueError
-    return hashlib.blake2b(text.encode('utf-8'), digest_size=64).hexdigest()
-
-
-def _blake2b_256(text):
-    if type(text) != str:
-        raise ValueError
+def _blake2b_256(text: str):
     return hashlib.blake2b(text.encode('utf-8'), digest_size=32).hexdigest()
 
 
-def _sha3_512(text):
-    if type(text) != str:
-        raise ValueError
+def _blake2b_512(text: str):
+    return hashlib.blake2b(text.encode('utf-8'), digest_size=64).hexdigest()
+
+
+def _sha3_512(text: str):
     return hashlib.sha3_512(text.encode('utf-8')).hexdigest()
+
+
+def mtk_512(text: str):
+    return _blake2b_512(_sha3_512(text) + text)
+
+
+def mtk_256(text: str):
+    return _blake2b_256(_sha3_512(text) + text)
 
 
 def get_uid():
