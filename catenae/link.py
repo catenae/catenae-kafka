@@ -1076,15 +1076,15 @@ class Link:
                 self.logger.log(f'removed input {input_topic}')
 
     def start(self, embedded=False, startup_text=None):
-        if startup_text is None:
-            startup_text = catenae.text_logo
-        self.logger.log(startup_text)
-        self.logger.log(f'Catenae v{catenae.__version__} {catenae.__version_name__}')
-
         with self._start_stop_lock:
             if self._started:
                 return
             self._started = True
+
+        if startup_text is None:
+            startup_text = catenae.text_logo
+        self.logger.log(startup_text)
+        self.logger.log(f'Catenae v{catenae.__version__} {catenae.__version_name__}')
 
         if self._kafka_endpoint:
             self._set_kafka_common_properties()
