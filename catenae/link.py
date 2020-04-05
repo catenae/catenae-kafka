@@ -86,7 +86,7 @@ class Link:
     CHECK_INSTANCES_INTERVAL = 5
     INSTANCE_TIMEOUT = 3
     COMMIT_ATTEMPTS = 30
-    REPORT_EXISTENCE_INTERVAL = 10
+    REPORT_EXISTENCE_INTERVAL = 60
 
     def __init__(self,
                  log_level='INFO',
