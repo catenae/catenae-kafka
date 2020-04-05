@@ -112,6 +112,7 @@ class Link:
             self._uid = environ['HOSTNAME']
         else:
             self._uid = utils.get_uid()
+        self._class_id = self.__class__.__name__.lower()
 
         self._set_log_level(log_level)
         self.logger = Logger(self, self._log_level)
@@ -128,7 +129,7 @@ class Link:
 
         # RPC topics
         self._rpc_instance_topic = f'catenae_rpc_{self._uid}'
-        self._rpc_group_topic = f'catenae_rpc_{self.__class__.__name__.lower()}'
+        self._rpc_group_topic = f'catenae_rpc_{self._class_id}'
         self._rpc_broadcast_topic = 'catenae_rpc_broadcast'
         self._rpc_topics = [self._rpc_instance_topic, self._rpc_group_topic, self._rpc_broadcast_topic]
         self._known_message_ids = CircularOrderedSet(50)
@@ -313,7 +314,7 @@ class Link:
     def _check_instances(self):
         with self._instances_lock:
             known_instances = dict(self._known_instances)
-            
+
         to_add = []
         to_remove = []
         for uid, properties in known_instances.items():
@@ -654,7 +655,7 @@ class Link:
         # Same partition key for the current instance if sequential mode
         # is enabled so consumer can get messages in order
         elif self._sequential:
-            partition_key = self.__class__.__name__.lower().encode('utf-8')
+            partition_key = self._class_id.encode('utf-8')
 
         # If the destiny topic is not specified, the first is used
         if not electron.topic:
@@ -677,7 +678,7 @@ class Link:
             producer = self._async_producer
 
         try:
-            # If partition_key = None, the partition.assignment.strategy
+            # If partition_key == None, the partition.assignment.strategy
             # is used to distribute the messages
             producer.produce(topic=electron.topic, key=partition_key, value=serialized_electron)
 
@@ -800,7 +801,7 @@ class Link:
             # transform method (default, first output topic)
             if electron.previous_topic in self._rpc_topics:
                 # Avoid own RPC calls
-                if electron.value['context']['uid'] == self.uid:
+                if electron.value['context']['uid'] == self._uid:
                     commit_callback.execute()
                 else:
                     self._transform_rpc_executor.submit(self._rpc_notify, [electron, commit_callback])
@@ -1130,7 +1131,7 @@ class Link:
                 for thread in self._transform_main_executor.threads:
                     self._join_if_not_current_thread(thread)
 
-        self.logger.log(f'link {self.uid} stopped')
+        self.logger.log(f'link {self._uid} stopped')
 
     @suicide_on_error
     def _join_if_not_current_thread(self, thread):
@@ -1235,7 +1236,7 @@ class Link:
         elif consumer_group:
             self._consumer_group = consumer_group
         else:
-            self._consumer_group = f'catenae_{self.__class__.__name__.lower()}'
+            self._consumer_group = f'catenae_{self._class_id}'
 
         self.logger.log(f'consumer_group: {self._consumer_group}')
 

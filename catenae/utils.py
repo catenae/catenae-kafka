@@ -28,31 +28,17 @@ def load_dict(str_dict):
     return json.loads(str_dict, object_pairs_hook=OrderedDict)
 
 
-def keccak256(item):
-    if type(item) != str:
-        raise ValueError
-    return Web3.sha3(text=item).hex()[2:]
-
-
-def _blake2b_256(text: str):
+def blake2b_256(text: str):
     return hashlib.blake2b(text.encode('utf-8'), digest_size=32).hexdigest()
 
 
-def _blake2b_512(text: str):
+def blake2b_512(text: str):
     return hashlib.blake2b(text.encode('utf-8'), digest_size=64).hexdigest()
 
 
-def _sha3_512(text: str):
+def sha3_512(text: str):
     return hashlib.sha3_512(text.encode('utf-8')).hexdigest()
 
 
-def mtk_512(text: str):
-    return _blake2b_512(_sha3_512(text) + text)
-
-
-def mtk_256(text: str):
-    return _blake2b_256(_sha3_512(text) + text)
-
-
 def get_uid():
-    return b2bsha3_512(str(uuid4()))[:12]
+    return blake2b_256(str(uuid4()))[:12]
