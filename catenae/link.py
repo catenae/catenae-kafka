@@ -655,7 +655,7 @@ class Link:
         # Same partition key for the current instance if sequential mode
         # is enabled so consumer can get messages in order
         elif self._sequential:
-            partition_key = self._class_id.encode('utf-8')
+            partition_key = b'0'
 
         # If the destiny topic is not specified, the first is used
         if not electron.topic:
