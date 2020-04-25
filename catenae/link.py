@@ -85,7 +85,8 @@ class Link:
     TIMEOUT = 0.5
     CHECK_INSTANCES_INTERVAL = 5
     INSTANCE_TIMEOUT = 3
-    COMMIT_ATTEMPTS = 30
+    MAX_COMMIT_ATTEMPTS = 30
+    COMMIT_MESSAGE_INTERVAL = 5
     REPORT_EXISTENCE_INTERVAL = 60
 
     def __init__(self,
@@ -834,22 +835,24 @@ class Link:
     def _commit_kafka_message(self, consumer, message):
         commited = False
         attempts = 1
-        self.logger.log(f'trying to commit the message {message.value()}', level='debug')
+        self.logger.log(f'trying to commit a message', level='debug')
         while not commited:
+            if attempts > Link.MAX_COMMIT_ATTEMPTS:
+                self.suicide('the maximum number of attempts to commit the message has been reached', exception=True)
+
             if attempts > 2:
-                self.logger.log(f'trying to commit a message (attempt {attempts}/{Link.COMMIT_ATTEMPTS})', level='warn')
+                self.logger.log(f'trying to commit a message', level='warn')
+
             try:
                 consumer.commit(message=message, asynchronous=False)
                 commited = True
             except Exception:
-                self.logger.log(f'could not commit the message {message.value()}', level='exception')
-                if attempts == Link.COMMIT_ATTEMPTS:
-                    self.suicide()
-                else:
-                    attempts += 1
-                    time.sleep(1)
+                self.logger.log(f'could not commit a message: {message.error()}', level='exception')
+                time.sleep(Link.COMMIT_MESSAGE_INTERVAL)
+            finally:
+                attempts += 1
 
-        self.logger.log(f'message {message.value()} commited', level='debug')
+        self.logger.log(f'message commited', level='debug')
 
     @suicide_on_error
     def _kafka_rpc_consumer(self):
