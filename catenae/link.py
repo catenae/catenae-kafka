@@ -85,7 +85,7 @@ class Link:
     TIMEOUT = 0.5
     CHECK_INSTANCES_INTERVAL = 5
     INSTANCE_TIMEOUT = 3
-    MAX_COMMIT_ATTEMPTS = 30
+    MAX_COMMIT_ATTEMPTS = 5
     COMMIT_MESSAGE_INTERVAL = 5
     REPORT_EXISTENCE_INTERVAL = 60
 
@@ -847,7 +847,7 @@ class Link:
                 consumer.commit(message=message, asynchronous=False)
                 commited = True
             except Exception:
-                self.logger.log(f'could not commit a message: {message.error()}', level='exception')
+                self.logger.log('could not commit a message', level='exception')
                 time.sleep(Link.COMMIT_MESSAGE_INTERVAL)
             finally:
                 attempts += 1
