@@ -85,9 +85,12 @@ class Link:
     TIMEOUT = 0.5
     CHECK_INSTANCES_INTERVAL = 5
     INSTANCE_TIMEOUT = 3
+    REPORT_EXISTENCE_INTERVAL = 60
+
     MAX_COMMIT_ATTEMPTS = 5
     COMMIT_MESSAGE_INTERVAL = 5
-    REPORT_EXISTENCE_INTERVAL = 60
+
+    LOOP_CHECK_STOP_INTERVAL = 1
 
     def __init__(self,
                  log_level='INFO',
@@ -288,9 +291,11 @@ class Link:
 
                 target(*args, **kwargs)
 
-                sleep_seconds = interval - utils.get_timestamp() + start_timestamp
-                if sleep_seconds > 0:
-                    time.sleep(sleep_seconds)
+                while not current_thread().will_stop:
+                    continue_sleeping = (utils.get_timestamp() - start_timestamp) < interval
+                    if not continue_sleeping:
+                        break
+                    time.sleep(Link.LOOP_CHECK_STOP_INTERVAL)
 
             except Exception:
                 self.logger.log(f'exception raised when executing the loop: {target.__name__}', level='exception')
@@ -841,7 +846,7 @@ class Link:
                 self.suicide('the maximum number of attempts to commit the message has been reached', exception=True)
 
             if attempts > 2:
-                self.logger.log(f'trying to commit a message', level='warn')
+                self.logger.log(f'trying to commit a message ({attempts}/{Link.MAX_COMMIT_ATTEMPTS})', level='warn')
 
             try:
                 consumer.commit(message=message, asynchronous=False)
