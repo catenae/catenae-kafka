@@ -1084,7 +1084,7 @@ class Link:
                 self._changed_input_topics = True
                 self.logger.log(f'removed input {input_topic}')
 
-    def start(self, embedded=False, startup_text=None, **kwargs):
+    def start(self, embedded=False, startup_text=None, setup_kwargs=None):
         with self._start_stop_lock:
             if self._started:
                 return
@@ -1101,7 +1101,7 @@ class Link:
         self._set_connectors()
 
         try:
-            self.setup(**kwargs)
+            self.setup(**setup_kwargs)
             self.logger.log(f'link {self._uid} is starting...')
             self._launch_tasks()
         except Exception:
