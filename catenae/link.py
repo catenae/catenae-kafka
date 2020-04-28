@@ -82,15 +82,19 @@ def suicide_on_error(method):
 
 class Link:
 
-    TIMEOUT = 0.5
-    CHECK_INSTANCES_INTERVAL = 5
+    CONSUMER_POLL_TIMEOUT = 0.5
+    QUEUE_GET_TIMEOUT = 0.5
     INSTANCE_TIMEOUT = 3
+    SUICIDE_TIMEOUT = 10
+
+    WAIT_INTERVAL = 0.5
+    RPC_REQUEST_MONITOR_INTERVAL = 0.5
+    CHECK_INSTANCES_INTERVAL = 5
     REPORT_EXISTENCE_INTERVAL = 60
+    COMMIT_MESSAGE_INTERVAL = 5
+    LOOP_CHECK_STOP_INTERVAL = 1
 
     MAX_COMMIT_ATTEMPTS = 5
-    COMMIT_MESSAGE_INTERVAL = 5
-
-    LOOP_CHECK_STOP_INTERVAL = 1
 
     def __init__(self,
                  log_level='INFO',
@@ -302,19 +306,18 @@ class Link:
 
     @suicide_on_error
     def _setup_signals_handler(self):
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-        signal.signal(signal.SIGQUIT, self._signal_handler)
+        for signal_name in ['SIGINT', 'SIGTERM', 'SIGQUIT', 'SIGALRM']:
+            signal.signal(getattr(signal, signal_name), self._signal_handler)
 
-    @suicide_on_error
     def _signal_handler(self, sig, frame):
         if sig == signal.SIGINT:
-            signal_name = 'SIGINT'
+            self.suicide('SIGINT')
         elif sig == signal.SIGTERM:
-            signal_name = 'SIGINT'
+            self.suicide('SIGTERM')
         elif sig == signal.SIGQUIT:
-            signal_name = 'SIGQUIT'
-        self.suicide(f'({signal_name})')
+            self.suicide('SIGQUIT')
+        elif sig == signal.SIGALRM:
+            raise errors.TimeoutError
 
     @suicide_on_error
     def _check_instances(self):
@@ -450,7 +453,7 @@ class Link:
             response_data = error.read().decode('utf-8')
             result = json.loads(response_data)['result']
         except timeout:
-            raise errors.Timeout
+            raise errors.TimeoutError
         except Exception:
             raise errors.RPCError
 
@@ -577,7 +580,7 @@ class Link:
             self.logger.log(message, level='warn')
 
         while not self._started:
-            time.sleep(Link.TIMEOUT)
+            time.sleep(Link.WAIT_INTERVAL)
 
         self.logger.log('stopping threads...')
 
@@ -614,17 +617,19 @@ class Link:
             'wait': wait,
             'level': level
         }
-        loop_thread = Thread(self._loop_task, kwargs=loop_task_kwargs)
+        thread = Thread(self._loop_task, kwargs=loop_task_kwargs)
         if safe_stop:
-            self._safe_stop_threads.append(loop_thread)
-        loop_thread.start()
-        return loop_thread
+            self._safe_stop_threads.append(thread)
+        thread.daemon = True
+        thread.start()
+        return thread
 
     @suicide_on_error
     def launch_thread(self, target, args=None, kwargs=None, safe_stop=False):
         thread = Thread(target, args=args, kwargs=kwargs)
         if safe_stop:
             self._safe_stop_threads.append(thread)
+        thread.daemon = True
         thread.start()
         return thread
 
@@ -638,7 +643,7 @@ class Link:
     def _kafka_producer(self):
         while not current_thread().will_stop:
             try:
-                electron = self._output_messages.get(timeout=Link.TIMEOUT, block=False)
+                electron = self._output_messages.get(timeout=Link.QUEUE_GET_TIMEOUT, block=False)
             except errors.EmptyError:
                 continue
 
@@ -766,7 +771,7 @@ class Link:
             self.logger.log('waiting for a new electron to transform...', level='debug')
 
             try:
-                queue_item = self._input_messages.get(timeout=Link.TIMEOUT, block=False)
+                queue_item = self._input_messages.get(timeout=Link.QUEUE_GET_TIMEOUT, block=False)
             except errors.EmptyError:
                 continue
 
@@ -869,7 +874,7 @@ class Link:
         self.logger.log(f'[RPC] listening on: {subscription}')
 
         while not current_thread().will_stop:
-            message = consumer.poll(Link.TIMEOUT)
+            message = consumer.poll(Link.CONSUMER_POLL_TIMEOUT)
 
             if not message or (not message.key() and not message.value()):
                 if not self._break_consumer_loop(subscription):
@@ -901,7 +906,7 @@ class Link:
         while not current_thread().will_stop:
             if not self._input_topics:
                 self.logger.log('No input topics, waiting...', level='debug')
-                time.sleep(Link.TIMEOUT)
+                time.sleep(Link.WAIT_INTERVAL)
                 continue
 
             self._set_input_topic_assignments()
@@ -944,7 +949,7 @@ class Link:
                             # outer loop so both loops are broken
                             break
 
-                    message = consumer.poll(Link.TIMEOUT)
+                    message = consumer.poll(Link.CONSUMER_POLL_TIMEOUT)
 
                     if not message or (not message.key() and not message.value()):
                         if not self._break_consumer_loop(subscription):
@@ -1085,10 +1090,12 @@ class Link:
                 self.logger.log(f'removed input {input_topic}')
 
     def start(self, embedded=False, startup_text=None, setup_kwargs=None):
+        if setup_kwargs is None:
+            setup_kwargs = {}
+
         with self._start_stop_lock:
             if self._started:
                 return
-            self._started = True
 
         if startup_text is None:
             startup_text = catenae.text_logo
@@ -1101,9 +1108,11 @@ class Link:
         self._set_connectors()
 
         try:
-            self.setup(**setup_kwargs)
             self.logger.log(f'link {self._uid} is starting...')
+            self.setup(**setup_kwargs)
             self._launch_tasks()
+            self._started = True
+
         except Exception:
             try:
                 self.suicide('Exception during the execution of setup()', exception=True)
@@ -1115,6 +1124,8 @@ class Link:
                 Thread(self._join_tasks).start()
             else:
                 self._setup_signals_handler()
+                while not self._stopped:
+                    time.sleep(Link.WAIT_INTERVAL)
                 self._join_tasks()
 
     def _join_tasks(self):
@@ -1123,13 +1134,16 @@ class Link:
 
         if self._kafka_endpoint:
             if hasattr(self, '_producer_thread'):
-                self._producer_thread.join()
+                self._producer_thread.join(Link.SUICIDE_TIMEOUT)
+
             if hasattr(self, '_input_handler_thread'):
-                self._input_handler_thread.join()
+                self._input_handler_thread.join(Link.SUICIDE_TIMEOUT)
+
             if hasattr(self, '_consumer_rpc_thread'):
-                self._consumer_rpc_thread.join()
+                self._consumer_rpc_thread.join(Link.SUICIDE_TIMEOUT)
+
             if hasattr(self, '_consumer_main_thread'):
-                self._consumer_main_thread.join()
+                self._consumer_main_thread.join(Link.SUICIDE_TIMEOUT)
 
             if hasattr(self, '_transform_rpc_executor'):
                 for thread in self._transform_rpc_executor.threads:
@@ -1144,7 +1158,7 @@ class Link:
     @suicide_on_error
     def _join_if_not_current_thread(self, thread):
         if thread is not current_thread():
-            thread.join()
+            thread.join(Link.SUICIDE_TIMEOUT)
 
     @suicide_on_error
     def _setup_kafka_producers(self):
@@ -1159,9 +1173,6 @@ class Link:
 
     @suicide_on_error
     def _launch_tasks(self):
-        # Generator
-        self.loop(self.generator, interval=0, safe_stop=True)
-
         # JSON-RPC
         self._jsonrpc_process = Process(
             target=JsonRPC(self._jsonrpc_props['port'], self._jsonrpc_conn2, self.logger).run)
@@ -1169,6 +1180,15 @@ class Link:
         self._jsonrpc_process.start()
 
         if self._kafka_endpoint:
+            # Unavailable instances monitor
+            self.loop(self._check_instances, interval=Link.CHECK_INSTANCES_INTERVAL, safe_stop=True)
+
+            # RPC requests thread
+            self.loop(self._rpc_request_monitor, interval=Link.RPC_REQUEST_MONITOR_INTERVAL)
+
+            # Report existence periodically
+            self.loop(self._report_existence, interval=Link.REPORT_EXISTENCE_INTERVAL)
+
             # Kafka RPC consumer
             consumer_kwargs = {'target': self._kafka_rpc_consumer}
             self._consumer_rpc_thread = Thread(self._thread_target, kwargs=consumer_kwargs)
@@ -1191,14 +1211,8 @@ class Link:
             self._input_handler_thread = Thread(self._thread_target, kwargs=transform_kwargs)
             self._input_handler_thread.start()
 
-            # Unavailable instances monitor
-            self.loop(self._check_instances, interval=Link.CHECK_INSTANCES_INTERVAL, safe_stop=True)
-
-            # RPC requests thread
-            self.loop(self._rpc_request_monitor, interval=Link.TIMEOUT)
-
-            # Report existence periodically
-            self.loop(self._report_existence, interval=Link.REPORT_EXISTENCE_INTERVAL)
+        # Generator
+        self.loop(self.generator, interval=0, safe_stop=True)
 
     @suicide_on_error
     def _report_existence(self):

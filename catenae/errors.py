@@ -1,50 +1,34 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-###################################################################################################
+
+class EmptyError(Exception):
+    pass
+
+
+class TimeoutError(Exception):
+    pass
 
 
 class RPCError(Exception):
-    def __init__(self, message=None):
-        super().__init__(message)
-
-
-class Timeout(RPCError):
-    def __init__(self, message=None):
-        super().__init__(message)
+    pass
 
 
 class ParseError(RPCError):
-    def __init__(self, message=None):
-        super().__init__(message)
+    pass
 
 
 class InvalidRequestError(RPCError):
-    def __init__(self, message=None):
-        super().__init__(message)
+    pass
 
 
 class MethodNotFoundError(RPCError):
-    def __init__(self, message=None):
-        super().__init__(message)
+    pass
 
 
 class InvalidParamsError(RPCError):
-    def __init__(self, message=None):
-        super().__init__(message)
+    pass
 
 
 class InternalError(RPCError):
-    def __init__(self, message=None):
-        super().__init__(message)
-
-
-###################################################################################################
-
-
-class EmptyError(Exception):
-    def __init__(self, message=None):
-        super().__init__(message)
-
-
-###################################################################################################
+    pass

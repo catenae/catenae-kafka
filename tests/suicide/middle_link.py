@@ -11,14 +11,14 @@ class MiddleLink(Link):
         self.message_count = 0
 
     def generator(self):
-        self.logger.log("Hi from generator()")
-        time.sleep(1)
+        while True:
+            self.logger.log("Hi from generator()")
+            time.sleep(1)
 
     def transform(self, electron):
         self.logger.log(f'Received: {electron.value}')
-
         self.suicide()
-        assert False
+        assert False  # this cannot be reached
 
 
 if __name__ == "__main__":

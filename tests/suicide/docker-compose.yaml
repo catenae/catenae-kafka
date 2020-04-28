@@ -15,7 +15,6 @@ services:
     image: catenae/link:develop
     command: source_link.py -o input1 -k kafka:9092
     working_dir: /opt/catenae/tests/suicide
-    restart: always
     depends_on:
       - kafka
 
@@ -23,6 +22,5 @@ services:
     image: catenae/link:develop
     command: middle_link.py -i input1 -k kafka:9092
     working_dir: /opt/catenae/tests/suicide
-    restart: always
     depends_on:
       - kafka
