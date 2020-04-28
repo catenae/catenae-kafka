@@ -306,7 +306,7 @@ class Link:
 
     @suicide_on_error
     def _setup_signals_handler(self):
-        for signal_name in ['SIGINT', 'SIGTERM', 'SIGQUIT', 'SIGALRM']:
+        for signal_name in ['SIGINT', 'SIGTERM', 'SIGQUIT']:
             signal.signal(getattr(signal, signal_name), self._signal_handler)
 
     def _signal_handler(self, sig, frame):
@@ -316,8 +316,6 @@ class Link:
             self.suicide('SIGTERM')
         elif sig == signal.SIGQUIT:
             self.suicide('SIGQUIT')
-        elif sig == signal.SIGALRM:
-            raise errors.TimeoutError
 
     @suicide_on_error
     def _check_instances(self):
