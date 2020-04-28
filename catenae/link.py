@@ -103,7 +103,7 @@ class Link:
                  num_main_threads=1,
                  input_topics=None,
                  output_topics=None,
-                 kafka_endpoint='localhost:9092',
+                 kafka_endpoint=None,
                  consumer_group=None,
                  consumer_timeout=300,
                  aerospike_endpoint=None,
@@ -221,15 +221,15 @@ class Link:
         self.logger.log(f'num_rpc_threads: {self._num_rpc_threads}')
         self.logger.log(f'num_main_threads: {self._num_main_threads}')
 
-        if not hasattr(self, '_input_topics'):
+        if not self._input_topics:
             self._input_topics = input_topics
         self.logger.log(f'input_topics: {self._input_topics}')
 
-        if not hasattr(self, '_output_topics'):
+        if not self._output_topics:
             self._output_topics = output_topics
         self.logger.log(f'output_topics: {self._output_topics}')
 
-        if not hasattr(self, '_kafka_endpoint'):
+        if not self._kafka_endpoint:
             self._kafka_endpoint = kafka_endpoint
         self.logger.log(f'kafka_endpoint: {self._kafka_endpoint}')
 
