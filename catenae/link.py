@@ -73,8 +73,6 @@ def suicide_on_error(method):
         try:
             return method(self, *args, **kwargs)
         except Exception:
-            import traceback
-            traceback.print_exc()
             self.suicide()
 
     return _try_except
@@ -560,12 +558,21 @@ class Link:
         commit_callback.execute()
 
     def suicide(self, message=None, exception=False):
+        self.launch_thread(self.suicide, kwargs={'message': message, 'exception': exception})
+        # Kill the thread that invoked the suicide method
+        self.logger.log('the suicidal thread has exited.')
+        raise SystemExit
+
+    def _suicide(self, message=None, exception=False):
         with self._start_stop_lock:
             if self._stopped:
                 return
             self._stopped = True
 
-        self.finish()
+        try:
+            self.finish()
+        except Exception:
+            self.logger.log('error when executing finish()', level='exception')
 
         if message is None:
             message = '[SUICIDE]'
@@ -579,8 +586,6 @@ class Link:
 
         while not self._started:
             time.sleep(Link.WAIT_INTERVAL)
-
-        self.logger.log('stopping threads...')
 
         for thread in self._safe_stop_threads:
             thread.stop()
@@ -602,8 +607,7 @@ class Link:
                 for thread in self._transform_main_executor.threads:
                     thread.stop()
 
-        # Kill the thread that invoked the suicide method
-        raise SystemExit
+        self.logger.log('suicide initialized.')
 
     @suicide_on_error
     def loop(self, target, args=None, kwargs=None, interval=0, wait=False, level='debug', safe_stop=True):
@@ -843,13 +847,16 @@ class Link:
     def _commit_kafka_message(self, consumer, message):
         commited = False
         attempts = 1
-        self.logger.log(f'trying to commit a message', level='debug')
+        self.logger.log(f'trying to commit a message ({attempts}/{Link.MAX_COMMIT_ATTEMPTS})', level='debug')
+
         while not commited:
             if attempts > Link.MAX_COMMIT_ATTEMPTS:
                 self.suicide('the maximum number of attempts to commit the message has been reached', exception=True)
 
-            if attempts > 2:
+            if attempts > 1:
                 self.logger.log(f'trying to commit a message ({attempts}/{Link.MAX_COMMIT_ATTEMPTS})', level='warn')
+
+            attempts += 1
 
             try:
                 consumer.commit(message=message, asynchronous=False)
@@ -857,8 +864,6 @@ class Link:
             except Exception:
                 self.logger.log('could not commit a message', level='exception')
                 time.sleep(Link.COMMIT_MESSAGE_INTERVAL)
-            finally:
-                attempts += 1
 
         self.logger.log(f'message commited', level='debug')
 
@@ -1127,6 +1132,8 @@ class Link:
                 self._join_tasks()
 
     def _join_tasks(self):
+        self.logger.log('waiting for the managed threads to stop...')
+
         for thread in self._safe_stop_threads:
             self._join_if_not_current_thread(thread)
 
@@ -1151,7 +1158,7 @@ class Link:
                 for thread in self._transform_main_executor.threads:
                     self._join_if_not_current_thread(thread)
 
-        self.logger.log(f'link {self._uid} stopped')
+        self.logger.log('the managed threads have been terminated.')
 
     @suicide_on_error
     def _join_if_not_current_thread(self, thread):
