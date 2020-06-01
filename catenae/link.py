@@ -558,12 +558,12 @@ class Link:
         commit_callback.execute()
 
     def suicide(self, message=None, exception=False):
-        self.launch_thread(self.suicide, kwargs={'message': message, 'exception': exception})
+        self.launch_thread(self._suicide, kwargs={'message': message, 'exception': exception})
         # Kill the thread that invoked the suicide method
         self.logger.log('the suicidal thread has exited.')
         raise SystemExit
 
-    def _suicide(self, message=None, exception=False):
+    def _suicide(self, message, exception):
         with self._start_stop_lock:
             if self._stopped:
                 return
