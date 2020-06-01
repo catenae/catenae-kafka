@@ -716,7 +716,7 @@ class Link:
                 transform_result = self.transform(electron)
             self.logger.log('electron transformed', level='debug')
         except Exception:
-            self.suicide('exception during the execution of "transform"', exception=True)
+            self.suicide('exception during the execution of transform()', exception=True)
 
         transform_callback = Callback()
 
@@ -1125,7 +1125,7 @@ class Link:
 
         except Exception:
             try:
-                self.suicide('Exception during the execution of setup()', exception=True)
+                self.suicide('exception during the execution of setup()', exception=True)
             except SystemExit:
                 pass
         finally:
