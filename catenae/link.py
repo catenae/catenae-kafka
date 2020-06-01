@@ -35,7 +35,7 @@ from pickle5 import pickle
 import time
 import argparse
 from os import environ
-from confluent_kafka import Producer, Consumer, KafkaError
+from confluent_kafka import Producer, Consumer, KafkaError, KafkaException
 import signal
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
@@ -861,6 +861,13 @@ class Link:
             try:
                 consumer.commit(message=message, asynchronous=False)
                 commited = True
+
+            except KafkaException as error:
+                error_code = error.args[0].code()
+                if error_code == KafkaError._REQUEST_TIMED_OUT:
+                    attempts -= 1  # suicide after max attempts won't help if there are timeouts
+                    time.sleep(Link.COMMIT_MESSAGE_INTERVAL)
+
             except Exception:
                 self.logger.log('could not commit a message', level='exception')
                 time.sleep(Link.COMMIT_MESSAGE_INTERVAL)
