@@ -73,7 +73,7 @@ def suicide_on_error(method):
         try:
             return method(self, *args, **kwargs)
         except Exception:
-            self.suicide()
+            self.suicide(f'error when executing {method}', exception=True)
 
     return _try_except
 
@@ -864,7 +864,7 @@ class Link:
 
             except KafkaException as error:
                 error_code = error.args[0].code()
-                if error_code == KafkaError._REQUEST_TIMED_OUT:
+                if error_code == KafkaError.REQUEST_TIMED_OUT:
                     attempts -= 1  # suicide after max attempts won't help if there are timeouts
                     time.sleep(Link.COMMIT_MESSAGE_INTERVAL)
 
