@@ -1136,29 +1136,34 @@ class Link:
 
         for thread in self._safe_stop_threads:
             self._join_if_not_current_thread(thread)
+        self.logger.log('safe stop threads terminated.')
 
         if self._kafka_endpoint:
             if hasattr(self, '_producer_thread'):
                 self._producer_thread.join(Link.SUICIDE_TIMEOUT)
-
-            if hasattr(self, '_input_handler_thread'):
-                self._input_handler_thread.join(Link.SUICIDE_TIMEOUT)
+            self.logger.log('producer thread terminated.')
 
             if hasattr(self, '_consumer_rpc_thread'):
                 self._consumer_rpc_thread.join(Link.SUICIDE_TIMEOUT)
+            self.logger.log('consumer RPC thread terminated.')
 
             if hasattr(self, '_consumer_main_thread'):
                 self._consumer_main_thread.join(Link.SUICIDE_TIMEOUT)
+            self.logger.log('consumer RPC thread terminated.')
+
+            if hasattr(self, '_input_handler_thread'):
+                self._input_handler_thread.join(Link.SUICIDE_TIMEOUT)
+            self.logger.log('input handler thread terminated.')
 
             if hasattr(self, '_transform_rpc_executor'):
                 for thread in self._transform_rpc_executor.threads:
                     self._join_if_not_current_thread(thread)
+            self.logger.log('transform RPC executor terminated.')
 
             if hasattr(self, '_transform_main_executor'):
                 for thread in self._transform_main_executor.threads:
                     self._join_if_not_current_thread(thread)
-
-        self.logger.log('the managed threads have been terminated.')
+            self.logger.log('transform main executor terminated.')
 
     @suicide_on_error
     def _join_if_not_current_thread(self, thread):
