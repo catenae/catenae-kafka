@@ -13,11 +13,11 @@ def should_stop():
 class Thread(threading.Thread):
     def __init__(self, target, args=None, kwargs=None):
         if args is None:
-            args = ()
+            args = tuple()
         elif isinstance(args, list):
             args = tuple(args)
         elif not isinstance(args, tuple):
-            args = ([args])
+            args = tuple([args])
 
         if kwargs is None:
             kwargs = dict()
