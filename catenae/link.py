@@ -73,7 +73,9 @@ def suicide_on_error(method):
         try:
             return method(self, *args, **kwargs)
         except Exception:
-            self.suicide(f'error when executing {method}', exception=True)
+            import traceback
+            traceback.print_exc()
+            self.suicide(f'error when executing {method}')
 
     return _try_except
 
