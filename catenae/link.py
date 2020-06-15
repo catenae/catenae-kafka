@@ -1141,11 +1141,11 @@ class Link:
                 self._join_tasks()
 
     def _join_tasks(self):
-        self.logger.log('waiting for the managed threads to stop...')
+        self.logger.log('waiting for the managed threads to stop...', level='debug')
 
         for thread in self._safe_stop_threads:
             self._join_if_not_current_thread(thread)
-        self.logger.log('safe stop threads terminated.')
+        self.logger.log('safe stop threads terminated.', level='debug')
 
         if self._kafka_endpoint:
             if hasattr(self, '_producer_thread'):
@@ -1158,7 +1158,7 @@ class Link:
 
             if hasattr(self, '_consumer_main_thread'):
                 self._consumer_main_thread.join(Link.SUICIDE_TIMEOUT)
-            self.logger.log('consumer RPC thread terminated.')
+            self.logger.log('consumer main thread terminated.')
 
             if hasattr(self, '_input_handler_thread'):
                 self._input_handler_thread.join(Link.SUICIDE_TIMEOUT)
@@ -1193,20 +1193,20 @@ class Link:
     @suicide_on_error
     def _launch_tasks(self):
         # JSON-RPC
-        self._jsonrpc_process = Process(
-            target=JsonRPC(self._jsonrpc_props['port'], self._jsonrpc_conn2, self.logger).run)
-        self._jsonrpc_process.daemon = True
-        self._jsonrpc_process.start()
+        # self._jsonrpc_process = Process(
+        #     target=JsonRPC(self._jsonrpc_props['port'], self._jsonrpc_conn2, self.logger).run)
+        # self._jsonrpc_process.daemon = True
+        # self._jsonrpc_process.start()
 
         if self._kafka_endpoint:
             # Unavailable instances monitor
-            self.loop(self._check_instances, interval=Link.CHECK_INSTANCES_INTERVAL, safe_stop=True)
+            # self.loop(self._check_instances, interval=Link.CHECK_INSTANCES_INTERVAL, safe_stop=True)
 
             # RPC requests thread
-            self.loop(self._rpc_request_monitor, interval=Link.RPC_REQUEST_MONITOR_INTERVAL)
+            # self.loop(self._rpc_request_monitor, interval=Link.RPC_REQUEST_MONITOR_INTERVAL)
 
             # Report existence periodically
-            self.loop(self._report_existence, interval=Link.REPORT_EXISTENCE_INTERVAL)
+            # self.loop(self._report_existence, interval=Link.REPORT_EXISTENCE_INTERVAL)
 
             # Kafka RPC consumer
             consumer_kwargs = {'target': self._kafka_rpc_consumer}
