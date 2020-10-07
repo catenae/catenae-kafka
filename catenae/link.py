@@ -68,15 +68,14 @@ def rpc(method):
 
 
 def suicide_on_error(method):
-    """ Try-Except decorator for Link instance methods """
-    def _try_except(self, *args, **kwargs):
+    def suicide_on_error_(self, *args, **kwargs):
         try:
             return method(self, *args, **kwargs)
-        except Exception as e:
-            traceback.print_exc(e)
+        except Exception:
+            traceback.print_exc()
             self.suicide(f'error when executing {method}')
 
-    return _try_except
+    return suicide_on_error_
 
 
 class Link:
@@ -574,7 +573,18 @@ class Link:
         commit_callback.execute()
 
     def suicide(self, message=None, exception=False):
+        if message is None:
+            message = '[SUICIDE]'
+        else:
+            message = f'[SUICIDE] {message}'
+
+        if exception:
+            self.logger.log(message, level='exception')
+        else:
+            self.logger.log(message, level='warn')
+
         self.launch_thread(self._suicide, kwargs={'message': message, 'exception': exception})
+
         # Kill the thread that invoked the suicide method
         self.logger.log('the suicidal thread has exited.')
         raise SystemExit
@@ -589,16 +599,6 @@ class Link:
             self.finish()
         except Exception:
             self.logger.log('error when executing finish()', level='exception')
-
-        if message is None:
-            message = '[SUICIDE]'
-        else:
-            message = f'[SUICIDE] {message}'
-
-        if exception:
-            self.logger.log(message, level='exception')
-        else:
-            self.logger.log(message, level='warn')
 
         while not self._started:
             time.sleep(Link.WAIT_INTERVAL)
