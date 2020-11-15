@@ -159,7 +159,6 @@ class Link:
         self._known_instances = dict()
         self._safe_stop_threads = list()
 
-    @suicide_on_error
     def _set_connectors_properties(self, aerospike_endpoint, mongodb_endpoint, rocksdb_path):
         self._set_aerospike_properties(aerospike_endpoint)
         if hasattr(self, '_aerospike_host'):
@@ -177,7 +176,6 @@ class Link:
         if hasattr(self, '_rocksdb_path'):
             self.logger.log(f'rocksdb_path: {self._rocksdb_path}')
 
-    @suicide_on_error
     def _set_execution_opts(self, input_mode, exp_window_size, synchronous, sequential,
                             num_rpc_threads, num_main_threads, input_topics, output_topics,
                             kafka_endpoint, consumer_timeout):
@@ -291,23 +289,17 @@ class Link:
             kwargs = {}
 
         while not current_thread().will_stop:
-            try:
-                self.logger.log(f'new loop iteration ({target.__name__})', level=level)
-                start_timestamp = utils.get_timestamp()
+            self.logger.log(f'new loop iteration ({target.__name__})', level=level)
+            start_timestamp = utils.get_timestamp()
 
-                target(*args, **kwargs)
+            target(*args, **kwargs)
 
-                while not current_thread().will_stop:
-                    continue_sleeping = (utils.get_timestamp() - start_timestamp) < interval
-                    if not continue_sleeping:
-                        break
-                    time.sleep(Link.LOOP_CHECK_STOP_INTERVAL)
+            while not current_thread().will_stop:
+                continue_sleeping = (utils.get_timestamp() - start_timestamp) < interval
+                if not continue_sleeping:
+                    break
+                time.sleep(Link.LOOP_CHECK_STOP_INTERVAL)
 
-            except Exception:
-                self.logger.log(f'exception raised when executing the loop: {target.__name__}',
-                                level='exception')
-
-    @suicide_on_error
     def _setup_signals_handler(self):
         for signal_name in ['SIGINT', 'SIGTERM', 'SIGQUIT']:
             signal.signal(getattr(signal, signal_name), self._signal_handler)
@@ -346,14 +338,12 @@ class Link:
         for instance in to_add:
             self._add_to_known_instances(*instance)
 
-    @suicide_on_error
     def _delete_from_known_instances(self, uid, group):
         with self._instances_lock:
             if uid in self._instances['by_uid']:
                 del self._instances['by_uid'][uid]
                 self._instances['by_group'][group].remove(uid)
 
-    @suicide_on_error
     def _add_to_known_instances(self, uid, group, host, port, scheme):
         with self._instances_lock:
             self._instances['by_uid'][uid] = {
@@ -418,12 +408,12 @@ class Link:
 
             self._jsonrpc_conn1.send(response)
 
-    @suicide_on_error
     def _is_method_rpc_enabled(self, method):
         if method in _rpc_enabled_methods:
             return True
         return False
 
+    @suicide_on_error
     def _rpc_call(self, method, kwargs=None):
         if not self._is_method_rpc_enabled(method):
             self.logger.log(f'method {method} cannot be called', level='error')
@@ -469,14 +459,12 @@ class Link:
 
         return result
 
-    @suicide_on_error
     def _it_is_me(self, host, port):
         if host == self._jsonrpc_props['host'] and \
            port == self._jsonrpc_props['port']:
             return True
         return False
 
-    @suicide_on_error
     def _is_endpoint_available(self, host, port, scheme):
         request = {'jsonrpc': '2.0', 'method': 'available', 'id': 0}
         data = bytes(json.dumps(request), 'utf-8')
@@ -504,7 +492,6 @@ class Link:
     def available(self):
         return True
 
-    @suicide_on_error
     @rpc
     def report_existence(self, context, host, port, scheme):
         with self._instances_lock:
@@ -518,7 +505,6 @@ class Link:
                 'group': context['group']
             }
 
-    @suicide_on_error
     def rpc_notify(self, method=None, args=None, kwargs=None, to='broadcast'):
         """ 
         Send a Kafka message which will be interpreted as a RPC call by the receiver module.
@@ -625,7 +611,6 @@ class Link:
 
         self.logger.log('suicide initialized.')
 
-    @suicide_on_error
     def loop(self,
              target,
              args=None,
@@ -649,7 +634,6 @@ class Link:
         thread.start()
         return thread
 
-    @suicide_on_error
     def launch_thread(self, target, args=None, kwargs=None, safe_stop=False):
         thread = Thread(target, args=args, kwargs=kwargs)
         if safe_stop:
@@ -658,7 +642,6 @@ class Link:
         thread.start()
         return thread
 
-    @suicide_on_error
     def launch_process(self, target, args=None, kwargs=None):
         process = Process(target, args=args, kwargs=kwargs)
         process.start()
@@ -674,7 +657,6 @@ class Link:
 
             self._produce(electron)
 
-    @suicide_on_error
     def _produce(self, electron, synchronous=None):
         # All the queue items of the _output_messages must be individual
         # instances of Electron
@@ -865,11 +847,9 @@ class Link:
         message_id = Link._get_message_id(message)
         self._known_message_ids.add(message_id)
 
-    @suicide_on_error
     def _break_consumer_loop(self, subscription):
         return len(subscription) > 1 and self._input_mode != 'parity'
 
-    @suicide_on_error
     def _commit_kafka_message(self, consumer, message):
         commited = False
         attempts = 1
@@ -1028,7 +1008,6 @@ class Link:
                         self._input_messages.put(message)
                         continue
 
-    @suicide_on_error
     def _get_index_assignment(self, index, elements_no, base=1.7):
         """
         window_size implies a full cycle consuming all the queues with
@@ -1047,20 +1026,16 @@ class Link:
 
         return (index_assignment / aggregated_value) * self._exp_window_size
 
-    @suicide_on_error
     def setup(self):
         pass
 
-    @suicide_on_error
     def transform(self, _):
         for thread in self._transform_main_executor.threads:
             thread.stop()
 
-    @suicide_on_error
     def finish(self):
         pass
 
-    @suicide_on_error
     def send(self,
              output_content,
              topic=None,
@@ -1100,7 +1075,6 @@ class Link:
         # Kill the generator thread
         raise SystemExit
 
-    @suicide_on_error
     def _thread_target(self, target, args=None, kwargs=None):
         if args is None:
             args = []
@@ -1113,7 +1087,6 @@ class Link:
 
         target(*args, **kwargs)
 
-    @suicide_on_error
     def add_input_topic(self, input_topic):
         with self._input_topics_lock:
             if input_topic not in self._input_topics:
@@ -1123,7 +1096,6 @@ class Link:
                 self._changed_input_topics = True
                 self.logger.log(f'added input {input_topic}')
 
-    @suicide_on_error
     def remove_input_topic(self, input_topic):
         with self._input_topics_lock:
             if input_topic in self._input_topics:
@@ -1206,12 +1178,10 @@ class Link:
                     self._join_if_not_current_thread(thread)
             self.logger.log('transform main executor terminated.')
 
-    @suicide_on_error
     def _join_if_not_current_thread(self, thread):
         if thread is not current_thread():
             thread.join(Link.SUICIDE_TIMEOUT)
 
-    @suicide_on_error
     def _setup_kafka_producers(self):
         sync_producer_properties = dict(self._kafka_producer_synchronous_properties)
         self._sync_producer = Producer(sync_producer_properties)
@@ -1225,7 +1195,6 @@ class Link:
             f'async producer properties: {utils.dump_dict_pretty(async_producer_properties)}',
             level='debug')
 
-    @suicide_on_error
     def _launch_tasks(self):
         # JSON-RPC
         # self._jsonrpc_process = Process(
@@ -1269,7 +1238,6 @@ class Link:
         # Generator
         self.loop(self.generator, interval=0, safe_stop=True)
 
-    @suicide_on_error
     def _report_existence(self):
         kwargs = {
             'host': self._jsonrpc_props['host'],
@@ -1282,7 +1250,6 @@ class Link:
         if not hasattr(self, '_log_level'):
             self._log_level = log_level.upper()
 
-    @suicide_on_error
     def _set_connectors(self):
         try:
             self._aerospike = AerospikeConnector(self._aerospike_host,
@@ -1303,7 +1270,6 @@ class Link:
         except Exception:
             self._rocksdb = RocksDB(self._rocksdb_path, read_only=True)
 
-    @suicide_on_error
     def _set_consumer_group(self, consumer_group, uid_consumer_group):
         if hasattr(self, 'consumer_group'):
             consumer_group = self._consumer_group
@@ -1319,7 +1285,6 @@ class Link:
 
         self.logger.log(f'consumer_group: {self._consumer_group}')
 
-    @suicide_on_error
     def _set_jsonrpc_props(self):
         self._jsonrpc_props = {
             'host': environ['JSONRPC_HOST'] if 'JSONRPC_HOST' in environ else '0.0.0.0',
@@ -1327,7 +1292,6 @@ class Link:
             'scheme': environ['JSONRPC_SCHEME'] if 'JSONRPC_SCHEME' in environ else 'http'
         }
 
-    @suicide_on_error
     def _set_kafka_common_properties(self):
         common_properties = {
             'bootstrap.servers': self._kafka_endpoint,
@@ -1379,7 +1343,6 @@ class Link:
             'enable.idempotence': True,
         })
 
-    @suicide_on_error
     def _set_input_topic_assignments(self):
         if self._input_mode == 'parity':
             self._input_topic_assignments = {-1: -1}
@@ -1398,11 +1361,9 @@ class Link:
                 self._input_topic_assignments[topic] = topic_assingment
                 self.logger.log(f' * {topic}: {topic_assingment} seconds', level='debug')
 
-    @suicide_on_error
     def _on_time(self, start_time, assigned_time):
         return (utils.get_timestamp_ms() - start_time) < 1000 * assigned_time
 
-    @suicide_on_error
     def _parse_aerospike_args(self, parser):
         parser.add_argument('-a',
                             '--aerospike',
@@ -1413,7 +1374,6 @@ class Link:
                             E.g., "localhost:3000"',
                             required=False)
 
-    @suicide_on_error
     def _set_aerospike_properties(self, aerospike_endpoint):
         if aerospike_endpoint is None:
             return
@@ -1423,7 +1383,6 @@ class Link:
         if not hasattr(self, '_aerospike_port'):
             self._aerospike_port = int(host_port[1])
 
-    @suicide_on_error
     def _parse_mongodb_args(self, parser):
         parser.add_argument('-m',
                             '--mongodb',
@@ -1433,7 +1392,6 @@ class Link:
                             E.g., "localhost:27017"',
                             required=False)
 
-    @suicide_on_error
     def _set_mongodb_properties(self, mongodb_endpoint):
         if mongodb_endpoint is None:
             return
@@ -1443,7 +1401,6 @@ class Link:
         if not hasattr(self, '_mongodb_port'):
             self._mongodb_port = int(host_port[1])
 
-    @suicide_on_error
     def _parse_rocksdb_args(self, parser):
         parser.add_argument('-r',
                             '--rocksdb',
@@ -1453,13 +1410,11 @@ class Link:
                             E.g., "/tmp/rocksdb"',
                             required=False)
 
-    @suicide_on_error
     def _set_rocksdb_properties(self, rocksdb_path):
         if rocksdb_path is None:
             return
         self._rocksdb_path = rocksdb_path
 
-    @suicide_on_error
     def _parse_kafka_args(self, parser):
         parser.add_argument('-i',
                             '--input',
@@ -1494,7 +1449,6 @@ class Link:
                             help='Kafka consumer timeout in seconds.',
                             required=False)
 
-    @suicide_on_error
     def _set_kafka_properties_from_args(self, args):
         if args.input_topics:
             self._input_topics = args.input_topics.split(',')
@@ -1514,7 +1468,6 @@ class Link:
         if args.consumer_timeout:
             self._consumer_timeout = args.consumer_timeout
 
-    @suicide_on_error
     def _parse_catenae_args(self, parser):
         parser.add_argument('--log-level',
                             action="store",
@@ -1557,7 +1510,6 @@ class Link:
                             help='Number of main threads.',
                             required=False)
 
-    @suicide_on_error
     def _set_catenae_properties_from_args(self, args):
         if args.log_level:
             self._log_level = args.log_level
@@ -1576,7 +1528,6 @@ class Link:
         if args.num_main_threads:
             self._num_main_threads = args.num_main_threads
 
-    @suicide_on_error
     def _load_args(self):
         parser = argparse.ArgumentParser()
 
